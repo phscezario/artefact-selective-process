@@ -26,36 +26,39 @@ npm run dev
 | Language      | TypeScript (`strict` + `noUncheckedIndexedAccess`) | 5.9           |
 | Monorepo      | npm workspaces                                     | npm 10        |
 
-The case specifies four task fields: `id`, `titulo` (required), `descricao` (optional) and `dataCriacao`. I kept those names as requested and added an optional `status` field (`todo`, `in_progress` or `done`) to make each task's state visible in the list.
+The case specifies four task fields: `id`, `titulo` (required), `descricao` (optional) and `dataCriacao`. I kept those names as requested, added an optional `status` field (`todo`, `in_progress` or `done`) to make each task's state visible in the list, and a `dataAtualizacao` timestamp that follows the same naming convention.
+
+`dataAtualizacao` starts equal to `dataCriacao` and is bumped on every edit. It gives the list a second sortable dimension (what changed most recently, regardless of when it was created) and lets the row show "updated" only when that actually happened.
 
 The status defaults to `todo`, so creating a task with only the required fields still works.
 
 ## 2. Architecture
 
 ```text
-┌───────────────────────────────────────────────────────────────────────────┐
-│ frontend/ — Next.js 15, App Router                                        │
-│                                                                           │
-│  app/page.tsx              Server Component: prefetch + HydrateClient    │
-│  app/tasks/new              Server Component: renders the form shell      │
-│  app/tasks/[id]/edit        Server Component: calls tasks.getById         │
-│  components/task-list       Client: useInfiniteQuery + delete mutation    │
-│  components/task-form       Client: useTaskForm + create/update mutation  │
+┌────────────────────────────────────────────────────────────────────────────┐
+│ frontend/ — Next.js 15, App Router                                         │
+│                                                                            │
+│  app/page.tsx              Server Component: prefetch + HydrateClient      │
+│  app/tasks/new              Server Component: renders the form shell       │
+│  app/tasks/[id]/edit        Server Component: calls tasks.getById          │
+│  components/task-list       Client: useInfiniteQuery + delete mutation     │
+│  components/task-form       Client: useTaskForm + create/update mutation   │
 │  app/api/trpc/[trpc]        Route Handler: the HTTP API entry point        │
-└──────────────────────────────────┬────────────────────────────────────────┘
+└───────────────────────────────────┬────────────────────────────────────────┘
                                    │ imports the workspace package
-┌──────────────────────────────────▼────────────────────────────────────────┐
-│ backend/ — @artefact/backend (no Next.js dependency)                      │
-│                                                                           │
-│  router.ts                 appRouter: tasks + health                      │
-│  trpc.ts                   initTRPC, superjson, errorFormatter, timing    │
-│  context.ts                per-request context, repository injection      │
-│  modules/tasks/                                                        │
+┌───────────────────────────────────▼────────────────────────────────────────┐
+│ backend/ — @artefact/backend (no Next.js dependency)                       │
+│                                                                            │
+│  router.ts                 appRouter: tasks + health                       │
+│  trpc.ts                   initTRPC, superjson, errorFormatter, timing     │
+│  context.ts                per-request context, repository injection       │
+│  modules/tasks/                                                            │
+│    task.constants.ts       limits, status order and sort values            │
 │    task.schema.ts          Zod inputs, limits and domain types             │
 │    task.router.ts          list / getById / create / update / delete       │
-│    task.repository.ts      TaskRepository interface + in-memory adapter   │
+│    task.repository.ts      TaskRepository interface + in-memory adapter    │
 │    task.seed.ts            24 fictional tasks                              │
-└───────────────────────────────────────────────────────────────────────────┘
+└────────────────────────────────────────────────────────────────────────────┘
 ```
 
 I kept the backend in its own workspace package instead of tying its implementation directly to Next.js. It contains the tRPC router, validation schemas and `TaskRepository` interface, and has no dependency on the frontend framework.
@@ -72,14 +75,16 @@ The application exposes the tRPC API through:
 /api/trpc/*
 ```
 
-| Procedure       | Type     | Input                                                       | Possible errors            |
-| --------------- | -------- | ----------------------------------------------------------- | -------------------------- |
-| `tasks.list`    | Query    | `{ limit?: 1..50 (default 8), cursor?: string }`            | `BAD_REQUEST`              |
-| `tasks.getById` | Query    | `{ id }`                                                    | `NOT_FOUND`                |
-| `tasks.create`  | Mutation | `{ titulo, descricao?, status? }`                           | `BAD_REQUEST`              |
-| `tasks.update`  | Mutation | `{ id, titulo?, descricao?, status? }` (at least one field) | `BAD_REQUEST`, `NOT_FOUND` |
-| `tasks.delete`  | Mutation | `{ id }`                                                    | `NOT_FOUND`                |
-| `health`        | Query    | No input                                                    | —                          |
+| Procedure       | Type     | Input                                                             | Possible errors            |
+| --------------- | -------- | ----------------------------------------------------------------- | -------------------------- |
+| `tasks.list`    | Query    | `{ limit?: 1..50 (default 8), cursor?: string, sort?: TaskSort }` | `BAD_REQUEST`              |
+| `tasks.getById` | Query    | `{ id }`                                                          | `NOT_FOUND`                |
+| `tasks.create`  | Mutation | `{ titulo, descricao?, status? }`                                 | `BAD_REQUEST`              |
+| `tasks.update`  | Mutation | `{ id, titulo?, descricao?, status? }` (at least one field)       | `BAD_REQUEST`, `NOT_FOUND` |
+| `tasks.delete`  | Mutation | `{ id }`                                                          | `NOT_FOUND`                |
+| `health`        | Query    | No input                                                          | —                          |
+
+`TaskSort` is `created-desc` (default), `created-asc`, `updated-desc`, `titulo-asc` or `status-asc`. The value is validated by the same Zod enum the UI uses, so an unsupported order is rejected with `BAD_REQUEST` instead of silently falling back on the server.
 
 The validation rules are defined in `task.schema.ts` and reused by the frontend and backend. The form uses `createTaskInput.safeParse` to provide immediate feedback, while the tRPC procedure validates the request again on the server.
 
@@ -103,7 +108,7 @@ For example, a validation response can include:
 
 Stack traces are available during development and removed in production. An unexpected server error is replaced by a generic message, so an internal detail never reaches the browser. When a task does not exist, the API returns `NOT_FOUND` with a message explaining that the task may have already been deleted. The edit page uses the same condition to render the Next.js not-found page.
 
-The `dataCriacao` field remains a JavaScript `Date` on both sides. I use superjson to preserve the date type during transport, avoiding manual conversion from ISO strings in the components.
+The `dataCriacao` and `dataAtualizacao` fields remain JavaScript `Date` objects on both sides. I use superjson to preserve the date type during transport, avoiding manual conversion from ISO strings in the components.
 
 ### Pagination
 
@@ -129,7 +134,15 @@ The create page is a Server Component that renders the client-side form. The edi
 
 ## 5. Behaviour and user experience
 
-The list displays the task title, description, status and creation date. Tasks are ordered from newest to oldest, with eight items loaded per page.
+The list displays the task title, description, status and creation date, with eight items loaded per page. When a task has been edited, the row also shows when it was last updated.
+
+### Ordering
+
+The list can be ordered by creation (newest or oldest), last update, title or status. The chosen order lives in the URL (`/?sort=updated-desc`), so the server component prefetches exactly that view and the link can be shared or bookmarked.
+
+The seed data makes this visible: eight of the 24 tasks were edited after being created, so "recently updated" produces a different order than "newest created". Status uses the workflow order (`todo`, `in_progress`, `done`) instead of alphabetical order, and title sorting ignores case.
+
+Each order is implemented as a total order with the task `id` as the tiebreaker. Without it, two tasks with the same timestamp could swap places between two page requests.
 
 ### Infinite scroll
 
@@ -195,6 +208,10 @@ _Figure 5 — Success feedback is displayed and the list is refreshed._
 
 _Figure 6 — On smaller screens, the task actions move below the task content._
 
+![The list ordered by most recently updated.](../screenshots/07-sort-updated.png)
+
+_Figure 7 — Ordering by last update, chosen in the list and reflected in the URL._
+
 ## 7. Tests and verification
 
 The project provides a verification command:
@@ -205,11 +222,11 @@ npm run verify
 
 It runs ESLint, a Prettier check, the TypeScript checks, the Vitest suites of both workspaces and the Next.js production build. CI runs this same command, so the local gate and the pipeline cannot drift.
 
-The backend has 24 tests. Most of them exercise the real router with an injected repository, without HTTP or mocks. Four go through the same `fetchRequestHandler` adapter the app mounts at `/api/trpc`, because that is the only place where the two promises of the wire can actually be verified: `dataCriacao` arrives as a `Date` (superjson) and a rejected input carries `fieldErrors`.
+The backend has 33 tests. Most of them exercise the real router with an injected repository, without HTTP or mocks. Four go through the same `fetchRequestHandler` adapter the app mounts at `/api/trpc`, because that is the only place where the promises of the wire can actually be verified: `dataCriacao` and `dataAtualizacao` arrive as `Date` objects (superjson) and a rejected input carries `fieldErrors`.
 
 The tests cover:
 
-1. Creating a task generates a unique ID, trims the title and normalises a whitespace-only description to `null`; the status defaults to `todo` when omitted.
+1. Creating a task generates a unique ID, trims the title and normalises a whitespace-only description to `null`; the status defaults to `todo` when omitted, and both timestamps start equal.
 2. An empty title is rejected with `BAD_REQUEST`; the exact title limit is accepted and one character more is rejected.
 3. The same boundary check for the description (1000 accepted, 1001 rejected).
 4. An unknown status is rejected.
@@ -217,19 +234,23 @@ The tests cover:
 6. An unknown cursor falls back to the first page, and the limit defaults to 8 when omitted.
 7. An invalid page size (0 or 51) is rejected.
 8. Updating a task changes only the fields included in the request, trims the title, and rejects an update without any field.
-9. An empty description clears the existing description.
-10. Reading, updating and deleting a task that does not exist return `NOT_FOUND`.
-11. Deleting a task succeeds once and returns `NOT_FOUND` when attempted again.
-12. The seed data has 24 tasks, keeps `dataCriacao` as a `Date` and passes the entity schema.
-13. A task returned to a caller cannot be used to mutate the store.
-14. Over HTTP: the date survives the wire, invalid input returns `BAD_REQUEST` with `fieldErrors.titulo`, a missing task returns 404, and in production an unexpected error exposes neither its message nor its stack.
+9. Updating keeps `dataCriacao` and bumps `dataAtualizacao`.
+10. An empty description clears the existing description.
+11. Reading, updating and deleting a task that does not exist return `NOT_FOUND`.
+12. Deleting a task succeeds once and returns `NOT_FOUND` when attempted again.
+13. The seed data has 24 tasks, keeps both timestamps as `Date` objects and passes the entity schema.
+14. A task returned to a caller cannot be used to mutate the store.
+15. Sorting works for creation (both directions), last update, title (case-insensitive) and status (workflow order), and the default order is unchanged.
+16. An unsupported sort value is rejected, and pagination keeps the requested order without repeating or skipping an item.
+17. With the seeded data, ordering by creation and by last update produce different sequences.
+18. Over HTTP: the dates survive the wire, invalid input returns `BAD_REQUEST` with `fieldErrors.titulo`, a missing task returns 404, and in production an unexpected error exposes neither its message nor its stack.
 
-The frontend has 9 tests for the pure logic behind the form and the error handling: the shared field-error mapping and the message extraction from a `TRPCClientError`.
+The frontend has 13 tests for the pure logic behind the list, the form and the error handling: the sort parser (including unknown values in the URL), the shared list input, the field-error mapping and the message extraction from a `TRPCClientError`.
 
 I also checked the production build manually:
 
-- **HTTP smoke test:** Against `npm start`, I tested create, read, update, list, delete, repeated delete and empty-title validation. I checked title trimming, description normalisation, date deserialization, `NOT_FOUND` on the second delete and `BAD_REQUEST` with `fieldErrors.titulo` for an empty title.
-- **SSR check:** I inspected the raw HTML returned for `/` and confirmed that it contains the task title `Review the Q3 revenue dashboard`. This verifies that the task content is present in the initial HTML response rather than being added only after a client-side request.
+- **HTTP smoke test:** Against `npm start`, I tested create, read, update, list, delete, repeated delete and empty-title validation. I checked title trimming, description normalisation, date deserialization, `dataAtualizacao` being bumped by an update, `NOT_FOUND` on the second delete and `BAD_REQUEST` with `fieldErrors.titulo` for an empty title.
+- **SSR check:** I inspected the raw HTML returned for `/` and for `/?sort=updated-desc`, and confirmed that each one starts with the task expected for that order. This verifies that the ordering is applied on the server and that the task content is present in the initial HTML response rather than being added only after a client-side request.
 - **Infinite-scroll check:** Using Chrome DevTools Protocol, I confirmed that 16 rows were present after hydration and all 24 were loaded after scrolling, followed by the end-of-list message.
 
 The `npm run verify` command completes successfully. The CI workflow runs the same command.
@@ -283,6 +304,7 @@ Some decisions were made to keep the implementation aligned with the scope of th
 | Shared Zod schemas                       | Keeps frontend and backend validation consistent                            | The validation schema is also included in the client bundle                        |
 | superjson                                | Preserves `Date` values across the API boundary                             | Adds some serialization overhead                                                   |
 | Cursor-based pagination                  | Handles changes to the list more predictably while users browse             | The cursor is an implementation detail that the UI does not interpret              |
+| Sorting evaluated per request            | One implementation covers every order without extra indexes or caching      | Editing an item between two pages can move it out of the current cursor window     |
 | In-memory repository behind an interface | Meets the requirements without introducing a database                       | Data is lost on restart, and the store is limited to a single application instance |
 | Hand-written CSS                         | Avoids adding another dependency for a small application                    | Reusable styling utilities would be useful as the interface grows                  |
 
