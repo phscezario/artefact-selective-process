@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { marked } from 'marked';
@@ -18,11 +18,16 @@ import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
  *
  * Each document declares its own base directory: the HTML files live in
  * `submission/`, so a single `<base>` would not resolve the images of both.
+ *
+ * The PDFs are printed into `submission/` (gitignored, the folder uploaded to the
+ * form) and copied to `docs/answers/` (committed, so the repository links to the
+ * same document that was submitted).
  */
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const ANSWERS_DIR = path.join(ROOT, 'docs', 'answers');
 const OUT_DIR = path.join(ROOT, 'submission');
+const PUBLISH_DIR = ANSWERS_DIR;
 
 const AUTHOR = 'Paulo Cezario';
 const ROLE = 'Software Engineer · Senior · Brazil';
@@ -811,4 +816,9 @@ for (const document of DOCUMENTS) {
 
   const pageCount = await finishPdf(document.pdfFile, document);
   console.info(`[submission] ${path.basename(document.pdfFile)}: ${pageCount} pages`);
+
+  // The committed copy lives next to the Markdown it was generated from.
+  const published = path.join(PUBLISH_DIR, path.basename(document.pdfFile));
+  await copyFile(document.pdfFile, published);
+  console.info(`[submission] copied to ${path.relative(ROOT, published)}`);
 }

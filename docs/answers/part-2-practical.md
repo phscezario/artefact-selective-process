@@ -28,7 +28,7 @@ npm run dev
 
 The case specifies four task fields: `id`, `titulo` (required), `descricao` (optional) and `dataCriacao`. I kept those names as requested, added an optional `status` field (`todo`, `in_progress` or `done`) to make each task's state visible in the list, and a `dataAtualizacao` timestamp that follows the same naming convention.
 
-`dataAtualizacao` starts equal to `dataCriacao` and is bumped on every edit. It gives the list a second sortable dimension (what changed most recently, regardless of when it was created) and lets the row show "updated" only when that actually happened.
+`dataAtualizacao` starts equal to `dataCriacao` and is bumped on every edit. It gives the list a second sortable dimension (what changed most recently, regardless of when it was created) and lets the row show "Updated" only when that actually happened.
 
 The status defaults to `todo`, so creating a task with only the required fields still works.
 

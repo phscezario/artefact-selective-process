@@ -4,9 +4,9 @@ A small task manager built for the **Software Engineer (Senior, Brazil)** writte
 **Next.js 15 App Router** on the front, **tRPC** over an **in-memory repository** on the back,
 with server-side rendering on the list page and an infinite-scroll bonus.
 
-> The full written answers (theory + practical) are in [`docs/answers`](docs/answers).
-> `npm run submission` turns this README and those answers into two PDFs; the output is
-> not committed on purpose — it contains personal data.
+> The full written answers (theory + practical) are in [`docs/answers`](docs/answers),
+> together with the two submission PDFs. `npm run submission` rebuilds both from this
+> README and those answers.
 
 ![Task list](docs/screenshots/01-task-list.png)
 
@@ -55,7 +55,7 @@ npm run verify       # lint -> format:check -> typecheck -> test -> build
 Submission documents (needs Chrome or Edge installed):
 
 ```bash
-npm run submission   # docs/answers + README -> PDF, written to submission/
+npm run submission   # docs/answers + README -> PDFs (submission/ and docs/answers/)
 ```
 
 ## Architecture
@@ -184,7 +184,7 @@ instead of the timing `console.info`, and a `/tasks/[id]` detail route.
 backend/    domain + tRPC router (no Next.js dependency)
 frontend/   Next.js app: route handler, server components, client components
 docs/
-  answers/          written answers (Part 1 and Part 2)
+  answers/          written answers (Part 1 and Part 2) + the submission PDFs
   screenshots/      images used by the README and by the PDFs
 scripts/            submission PDF builder (Markdown -> HTML -> Chrome headless)
 submission/         generated PDFs + screenshots (gitignored)
