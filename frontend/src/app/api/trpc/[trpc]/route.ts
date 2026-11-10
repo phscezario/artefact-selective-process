@@ -16,9 +16,10 @@ function handler(request: Request): Promise<Response> {
     router: appRouter,
     createContext: () => createContext({ headers: request.headers }),
     onError({ error, path }) {
-      // Server logs keep the full stack; the client only receives the formatted shape.
+      // The server log keeps the cause and the stack; the client only receives the
+      // formatted shape (see `errorFormatter`).
       if (process.env.NODE_ENV !== 'test') {
-        console.error(`[trpc] ${path ?? '<no-path>'} failed: ${error.message}`);
+        console.error(`[trpc] ${path ?? '<no-path>'} failed:`, error.cause ?? error);
       }
     },
   });

@@ -1,9 +1,14 @@
-import type { ZodError } from 'zod';
+import type { TaskStatus } from '@artefact/backend/schemas';
 
+/**
+ * Form model and field guards. Deliberately free of runtime dependencies: the list
+ * page imports `isTaskField` through `errors.ts`, and pulling the Zod schemas here
+ * would add the validator to every page that can show an error.
+ */
 export interface TaskFormValues {
   titulo: string;
   descricao: string;
-  status: 'todo' | 'in_progress' | 'done';
+  status: TaskStatus;
 }
 
 export type TaskField = keyof TaskFormValues;
@@ -11,21 +16,6 @@ export type TaskFieldErrors = Partial<Record<TaskField, string>>;
 
 const FORM_FIELDS: readonly TaskField[] = ['titulo', 'descricao', 'status'];
 
-function isFormField(value: unknown): value is TaskField {
+export function isTaskField(value: unknown): value is TaskField {
   return typeof value === 'string' && (FORM_FIELDS as readonly string[]).includes(value);
-}
-
-/** Turns Zod issues into the per-field map the form renders. First issue per field wins. */
-export function toFieldErrors(error: ZodError): TaskFieldErrors {
-  const fieldErrors: TaskFieldErrors = {};
-
-  for (const issue of error.issues) {
-    const field = issue.path[0];
-
-    if (isFormField(field) && fieldErrors[field] === undefined) {
-      fieldErrors[field] = issue.message;
-    }
-  }
-
-  return fieldErrors;
 }

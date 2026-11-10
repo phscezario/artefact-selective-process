@@ -2,12 +2,14 @@
 
 import { useState } from 'react';
 import { createTaskInput } from '@artefact/backend/schemas';
-import { toFieldErrors, type TaskFieldErrors, type TaskFormValues } from '@/lib/form';
+import { toFieldErrors } from '@/lib/form-errors';
+import type { TaskFieldErrors, TaskFormValues } from '@/lib/form';
 
 /**
- * Small form state machine: values, per-field errors and the submitting flag.
+ * Small form state machine: values and per-field errors.
  * Validation reuses the exact schema the tRPC procedure uses, so the client can
- * only accept what the server would accept.
+ * only accept what the server would accept. The submitting state is not stored
+ * here: it already lives on the mutations, and a second copy drifts.
  */
 export function useTaskForm(initialValues?: Partial<TaskFormValues>) {
   const [values, setValues] = useState<TaskFormValues>({
@@ -17,7 +19,6 @@ export function useTaskForm(initialValues?: Partial<TaskFormValues>) {
     ...initialValues,
   });
   const [fieldErrors, setFieldErrors] = useState<TaskFieldErrors>({});
-  const [isSubmitting, setIsSubmitting] = useState(false);
 
   function setField<Field extends keyof TaskFormValues>(
     field: Field,
@@ -56,10 +57,8 @@ export function useTaskForm(initialValues?: Partial<TaskFormValues>) {
   return {
     values,
     fieldErrors,
-    isSubmitting,
     setField,
     setFieldErrors,
-    setIsSubmitting,
     validate,
   };
 }

@@ -2,6 +2,8 @@ import { InMemoryTaskRepository, type TaskRepository } from './modules/tasks/tas
 
 export interface Context {
   taskRepository: TaskRepository;
+  /** Request headers when the caller has an HTTP request; the RSC caller has none. */
+  headers?: Headers;
 }
 
 export interface CreateContextOptions {
@@ -31,5 +33,6 @@ function getTaskRepository(): TaskRepository {
 export async function createContext(options: CreateContextOptions = {}): Promise<Context> {
   return {
     taskRepository: options.taskRepository ?? getTaskRepository(),
+    headers: options.headers,
   };
 }

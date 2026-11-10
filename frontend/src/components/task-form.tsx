@@ -7,33 +7,35 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   DESCRIPTION_MAX_LENGTH,
   TITLE_MAX_LENGTH,
-  type TaskStatus,
+  taskStatusSchema,
 } from '@artefact/backend/schemas';
 import { useTaskForm } from '@/lib/hooks/use-task-form';
 import { getErrorMessage, getFieldErrors } from '@/lib/errors';
-import { STATUS_OPTIONS, TASKS_PAGE_SIZE } from '@/lib/tasks';
+import { STATUS_OPTIONS, taskListInput } from '@/lib/tasks';
 import { useTRPC } from '@/lib/trpc/client';
 import { useToast } from '@/components/toast';
 import type { TaskFormValues } from '@/lib/form';
 
-interface TaskFormProps {
-  mode: 'create' | 'edit';
-  taskId?: string;
-  initialValues?: Partial<TaskFormValues>;
-}
+type TaskFormProps =
+  | { mode: 'create'; initialValues?: Partial<TaskFormValues> }
+  | { mode: 'edit'; taskId: string; initialValues: Partial<TaskFormValues> };
 
-export function TaskForm({ mode, taskId, initialValues }: TaskFormProps) {
+export function TaskForm(props: TaskFormProps) {
   const router = useRouter();
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const toast = useToast();
   const fieldId = useId();
 
-  const { values, fieldErrors, isSubmitting, setField, setFieldErrors, setIsSubmitting, validate } =
-    useTaskForm(initialValues);
+  const { values, fieldErrors, setField, setFieldErrors, validate } = useTaskForm(
+    props.initialValues,
+  );
 
   const createTask = useMutation(trpc.tasks.create.mutationOptions());
   const updateTask = useMutation(trpc.tasks.update.mutationOptions());
+
+  // Derived, not stored: a second source of truth for "am I saving?" drifts.
+  const isSubmitting = createTask.isPending || updateTask.isPending;
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
@@ -45,15 +47,9 @@ export function TaskForm({ mode, taskId, initialValues }: TaskFormProps) {
       return;
     }
 
-    setIsSubmitting(true);
-
     try {
-      if (mode === 'edit') {
-        if (!taskId) {
-          throw new Error('This form is in edit mode but no task id was provided.');
-        }
-
-        await updateTask.mutateAsync({ id: taskId, ...payload });
+      if (props.mode === 'edit') {
+        await updateTask.mutateAsync({ id: props.taskId, ...payload });
         toast.success('Task updated successfully.');
       } else {
         await createTask.mutateAsync(payload);
@@ -62,11 +58,12 @@ export function TaskForm({ mode, taskId, initialValues }: TaskFormProps) {
 
       // Drop the cached pages so the list reflects the change immediately.
       await queryClient.invalidateQueries({
-        queryKey: trpc.tasks.list.infiniteQueryKey({ limit: TASKS_PAGE_SIZE }),
+        queryKey: trpc.tasks.list.infiniteQueryKey(taskListInput),
       });
 
+      // `/` is force-dynamic, so navigating re-renders the server component with
+      // fresh data; a `router.refresh()` here would be the same request twice.
       router.push('/');
-      router.refresh();
     } catch (submitError) {
       // The server is the source of truth: if it rejects a field, mirror it in the form.
       const serverFieldErrors = getFieldErrors(submitError);
@@ -76,8 +73,6 @@ export function TaskForm({ mode, taskId, initialValues }: TaskFormProps) {
       }
 
       toast.error(getErrorMessage(submitError));
-    } finally {
-      setIsSubmitting(false);
     }
   }
 
@@ -152,7 +147,15 @@ export function TaskForm({ mode, taskId, initialValues }: TaskFormProps) {
           name="status"
           className="select"
           value={values.status}
-          onChange={(event) => setField('status', event.target.value as TaskStatus)}
+          onChange={(event) => {
+            // A `<select>` gives back a string; parse it instead of casting so an
+            // unexpected option can never enter the form model.
+            const parsed = taskStatusSchema.safeParse(event.target.value);
+
+            if (parsed.success) {
+              setField('status', parsed.data);
+            }
+          }}
         >
           {STATUS_OPTIONS.map((option) => (
             <option key={option.value} value={option.value}>
@@ -172,7 +175,7 @@ export function TaskForm({ mode, taskId, initialValues }: TaskFormProps) {
           disabled={isSubmitting}
           aria-busy={isSubmitting}
         >
-          {isSubmitting ? 'Saving…' : mode === 'edit' ? 'Save changes' : 'Create task'}
+          {isSubmitting ? 'Saving…' : props.mode === 'edit' ? 'Save changes' : 'Create task'}
         </button>
       </div>
     </form>

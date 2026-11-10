@@ -1,7 +1,19 @@
+import { LIST_DEFAULT_LIMIT } from '@artefact/backend/constants';
 import type { TaskStatus } from '@artefact/backend/schemas';
 
 /** Page size used by both the server prefetch and the client infinite query. */
-export const TASKS_PAGE_SIZE = 8;
+export const TASKS_PAGE_SIZE = LIST_DEFAULT_LIMIT;
+
+/**
+ * Single definition of the list query, shared by the SSR prefetch, the client hook
+ * and every cache invalidation. A second copy would drift silently: the query key
+ * includes the input, so a mismatched `limit` makes the hydrated cache miss.
+ */
+export const taskListInput = { limit: TASKS_PAGE_SIZE };
+
+export function getNextPageParam(lastPage: { nextCursor: string | null }): string | undefined {
+  return lastPage.nextCursor ?? undefined;
+}
 
 export const STATUS_LABELS: Record<TaskStatus, string> = {
   todo: 'To do',

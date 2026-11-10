@@ -17,7 +17,15 @@ export default function GlobalError({
     <div className="page">
       <div className="error-state" role="alert">
         <h1>Something went wrong</h1>
-        <p>{error.message || 'An unexpected error interrupted the page.'}</p>
+        <p>
+          An unexpected error interrupted the page.
+          {error.digest ? (
+            <>
+              {' '}
+              Reference: <code>{error.digest}</code>.
+            </>
+          ) : null}
+        </p>
         <button type="button" className="btn btn-primary" onClick={reset}>
           Try again
         </button>

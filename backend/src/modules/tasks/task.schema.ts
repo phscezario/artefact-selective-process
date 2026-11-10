@@ -1,9 +1,17 @@
-import { z } from 'zod';
+import { z, type ZodError } from 'zod';
+import {
+  DESCRIPTION_MAX_LENGTH,
+  LIST_DEFAULT_LIMIT,
+  LIST_MAX_LIMIT,
+  TITLE_MAX_LENGTH,
+} from './task.constants';
 
-export const TITLE_MAX_LENGTH = 120;
-export const DESCRIPTION_MAX_LENGTH = 1000;
-export const LIST_DEFAULT_LIMIT = 8;
-export const LIST_MAX_LIMIT = 50;
+export {
+  DESCRIPTION_MAX_LENGTH,
+  LIST_DEFAULT_LIMIT,
+  LIST_MAX_LIMIT,
+  TITLE_MAX_LENGTH,
+} from './task.constants';
 
 /**
  * Field names follow the case specification (`titulo`, `descricao`, `dataCriacao`).
@@ -54,23 +62,48 @@ export type UpdateTaskInput = z.infer<typeof updateTaskInput>;
 export const listTasksInput = z.object({
   /** Id of the last task of the previous page (keyset pagination). */
   cursor: idSchema.optional(),
-  limit: z.number().int().min(1).max(LIST_MAX_LIMIT),
+  limit: z.number().int().min(1).max(LIST_MAX_LIMIT).default(LIST_DEFAULT_LIMIT),
 });
 export type ListTasksInput = z.infer<typeof listTasksInput>;
 
 export const taskIdInput = z.object({ id: idSchema });
 
-export interface Task {
-  id: string;
-  titulo: string;
-  descricao: string | null;
-  status: TaskStatus;
-  dataCriacao: Date;
-}
+/**
+ * The entity itself. Inputs above guard the two doors writes come through; this
+ * schema guards the shape the rest of the system reads, so the seed data and the
+ * repository cannot drift from the contract the UI consumes.
+ */
+export const taskSchema = z.object({
+  id: idSchema,
+  titulo: z.string().min(1).max(TITLE_MAX_LENGTH),
+  descricao: z.string().max(DESCRIPTION_MAX_LENGTH).nullable(),
+  status: taskStatusSchema,
+  dataCriacao: z.date(),
+});
+export type Task = z.infer<typeof taskSchema>;
 
 export interface TaskPage {
   items: Task[];
   /** `null` when there are no more pages. */
   nextCursor: string | null;
   total: number;
+}
+
+/**
+ * Single mapping from Zod issues to the per-field error shape that the tRPC error
+ * formatter sends and the form renders. Both sides must agree on the keys, so it
+ * lives next to the schemas instead of being reimplemented per layer.
+ */
+export function toFieldErrors(error: ZodError): Record<string, string> {
+  const fieldErrors: Record<string, string> = {};
+
+  for (const issue of error.issues) {
+    const field = issue.path[0];
+
+    if (typeof field === 'string' && fieldErrors[field] === undefined) {
+      fieldErrors[field] = issue.message;
+    }
+  }
+
+  return fieldErrors;
 }

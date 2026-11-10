@@ -1,6 +1,6 @@
 import { HydrateClient, getQueryClient, trpc } from '@/lib/trpc/server';
 import { TaskList } from '@/components/task-list';
-import { TASKS_PAGE_SIZE } from '@/lib/tasks';
+import { getNextPageParam, taskListInput } from '@/lib/tasks';
 
 /**
  * Server-Side Rendering:
@@ -14,10 +14,7 @@ export const dynamic = 'force-dynamic';
 
 export default async function HomePage() {
   await getQueryClient().prefetchInfiniteQuery(
-    trpc.tasks.list.infiniteQueryOptions(
-      { limit: TASKS_PAGE_SIZE },
-      { getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined },
-    ),
+    trpc.tasks.list.infiniteQueryOptions(taskListInput, { getNextPageParam }),
   );
 
   return (

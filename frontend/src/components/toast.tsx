@@ -1,6 +1,14 @@
 'use client';
 
-import { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 
 type ToastTone = 'success' | 'error';
 
@@ -32,8 +40,16 @@ export function useToast(): ToastApi {
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const nextId = useRef(0);
+  const timers = useRef(new Map<number, ReturnType<typeof setTimeout>>());
 
   const dismiss = useCallback((id: number) => {
+    const timer = timers.current.get(id);
+
+    if (timer) {
+      clearTimeout(timer);
+      timers.current.delete(id);
+    }
+
     setToasts((current) => current.filter((toast) => toast.id !== id));
   }, []);
 
@@ -43,10 +59,27 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
       nextId.current += 1;
 
       setToasts((current) => [...current, { id, tone, message }]);
-      setTimeout(() => dismiss(id), TOAST_DURATION_MS);
+      timers.current.set(
+        id,
+        setTimeout(() => dismiss(id), TOAST_DURATION_MS),
+      );
     },
     [dismiss],
   );
+
+  // Pending timers would otherwise outlive the provider (route change, unmount)
+  // and call `setToasts` on a component that no longer exists.
+  useEffect(() => {
+    const pendingTimers = timers.current;
+
+    return () => {
+      for (const timer of pendingTimers.values()) {
+        clearTimeout(timer);
+      }
+
+      pendingTimers.clear();
+    };
+  }, []);
 
   const api = useMemo<ToastApi>(
     () => ({
@@ -59,11 +92,13 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   return (
     <ToastContext.Provider value={api}>
       {children}
-      <div className="toast-stack" aria-live="polite" aria-atomic="false">
+      <div className="toast-stack">
         {toasts.map((toast) => (
           <div
             key={toast.id}
             className={`toast toast-${toast.tone}`}
+            // `alert` is assertive and `status` is polite; the container must not
+            // declare a live region of its own or screen readers announce twice.
             role={toast.tone === 'error' ? 'alert' : 'status'}
           >
             <span className="toast-icon" aria-hidden="true">

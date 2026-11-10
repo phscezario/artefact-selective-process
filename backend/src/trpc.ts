@@ -1,29 +1,28 @@
 import { initTRPC } from '@trpc/server';
 import superjson from 'superjson';
 import { ZodError } from 'zod';
+import { toFieldErrors } from './modules/tasks/task.schema';
 import type { Context } from './context';
 
 const t = initTRPC.context<Context>().create({
   // Dates survive the wire without being stringified by hand.
   transformer: superjson,
   errorFormatter({ shape, error }) {
-    // Zod issues are exposed per field so the form can highlight the offending input.
-    const fieldErrors =
-      error.cause instanceof ZodError
-        ? Object.fromEntries(
-            error.cause.issues.map((issue) => [issue.path.join('.'), issue.message] as const),
-          )
-        : null;
-
     const isProduction = process.env.NODE_ENV === 'production';
+    // tRPC wraps unexpected errors as INTERNAL_SERVER_ERROR while keeping their
+    // message, so a raw `throw new Error('db password...')` would reach the
+    // browser. Production gets a generic message; the server log keeps the rest.
+    const hideInternalMessage = isProduction && error.code === 'INTERNAL_SERVER_ERROR';
 
     return {
       ...shape,
+      message: hideInternalMessage ? 'Internal server error' : shape.message,
       data: {
         ...shape.data,
         // Never ship server stacks to the browser, and keep them out of test output.
         stack: isProduction ? undefined : shape.data.stack,
-        fieldErrors,
+        // Zod issues are exposed per field so the form can highlight the offending input.
+        fieldErrors: error.cause instanceof ZodError ? toFieldErrors(error.cause) : null,
       },
     };
   },
@@ -47,5 +46,4 @@ const timingLogger = t.middleware(async ({ path, type, next }) => {
 
 export { t };
 export const createTRPCRouter = t.router;
-export const createCallerFactory = t.createCallerFactory;
 export const publicProcedure = t.procedure.use(timingLogger);

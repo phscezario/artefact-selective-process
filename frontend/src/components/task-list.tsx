@@ -1,87 +1,15 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useTRPC } from '@/lib/trpc/client';
-import { useToast } from '@/components/toast';
+import { TaskRow } from '@/components/task-row';
+import { useTaskList } from '@/lib/hooks/use-task-list';
 import { getErrorMessage } from '@/lib/errors';
-import {
-  STATUS_LABELS,
-  TASKS_PAGE_SIZE,
-  formatDateTime,
-  formatTaskCount,
-  toIsoString,
-} from '@/lib/tasks';
+import { formatTaskCount } from '@/lib/tasks';
 
 export function TaskList() {
-  const trpc = useTRPC();
-  const queryClient = useQueryClient();
-  const toast = useToast();
+  const { listQuery, deleteTask, confirmingId, setConfirmingId, loadMoreRef } = useTaskList();
 
-  const [confirmingId, setConfirmingId] = useState<string | null>(null);
-  const loadMoreRef = useRef<HTMLDivElement | null>(null);
-
-  const {
-    data,
-    status,
-    error,
-    refetch,
-    hasNextPage,
-    fetchNextPage,
-    isFetchingNextPage,
-    isFetching,
-  } = useInfiniteQuery(
-    trpc.tasks.list.infiniteQueryOptions(
-      { limit: TASKS_PAGE_SIZE },
-      { getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined },
-    ),
-  );
-
-  const deleteTask = useMutation(
-    trpc.tasks.delete.mutationOptions({
-      onSuccess: async () => {
-        toast.success('Task deleted.');
-        // The list is paginated, so every cached page has to be refetched.
-        await queryClient.invalidateQueries({
-          queryKey: trpc.tasks.list.infiniteQueryKey({ limit: TASKS_PAGE_SIZE }),
-        });
-      },
-      onError: (deleteError) => {
-        toast.error(`Could not delete the task. ${getErrorMessage(deleteError)}`);
-      },
-      onSettled: () => {
-        setConfirmingId(null);
-      },
-    }),
-  );
-
-  /**
-   * Infinite scroll: the sentinel only exists while there is a next page, and the
-   * observer is recreated whenever the fetching state changes to avoid stacking
-   * duplicate requests.
-   */
-  useEffect(() => {
-    const node = loadMoreRef.current;
-
-    if (!node || !hasNextPage) {
-      return;
-    }
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const entry = entries[0];
-
-        if (entry?.isIntersecting && !isFetchingNextPage) {
-          void fetchNextPage();
-        }
-      },
-      { rootMargin: '240px 0px' },
-    );
-
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+  const { data, status, error, refetch, hasNextPage, isFetchingNextPage, isFetching } = listQuery;
 
   if (status === 'error') {
     return (
@@ -126,72 +54,17 @@ export function TaskList() {
       </div>
 
       <ul className="task-list">
-        {tasks.map((task) => {
-          const isDeleting = deleteTask.isPending && deleteTask.variables?.id === task.id;
-          const isConfirming = confirmingId === task.id;
-
-          return (
-            <li key={task.id} className="task-row">
-              <div className="task-body">
-                <div className="task-heading">
-                  <h3 className="task-title">{task.titulo}</h3>
-                  <span className={`badge badge-${task.status}`}>{STATUS_LABELS[task.status]}</span>
-                </div>
-
-                {task.descricao ? (
-                  <p className="task-description">{task.descricao}</p>
-                ) : (
-                  <p className="task-description task-description-empty">No description</p>
-                )}
-
-                <p className="task-meta">
-                  Created{' '}
-                  <time dateTime={toIsoString(task.dataCriacao)}>
-                    {formatDateTime(task.dataCriacao)}
-                  </time>
-                </p>
-              </div>
-
-              <div className="task-actions">
-                {isConfirming ? (
-                  <>
-                    <span className="confirm-question">Delete?</span>
-                    <button
-                      type="button"
-                      className="btn btn-danger btn-sm"
-                      onClick={() => deleteTask.mutate({ id: task.id })}
-                      disabled={isDeleting}
-                      aria-busy={isDeleting}
-                    >
-                      {isDeleting ? 'Deleting…' : 'Confirm'}
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn-ghost btn-sm"
-                      onClick={() => setConfirmingId(null)}
-                      disabled={isDeleting}
-                    >
-                      Cancel
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <Link className="btn btn-ghost btn-sm" href={`/tasks/${task.id}/edit`}>
-                      Edit
-                    </Link>
-                    <button
-                      type="button"
-                      className="btn btn-danger-outline btn-sm"
-                      onClick={() => setConfirmingId(task.id)}
-                    >
-                      Delete
-                    </button>
-                  </>
-                )}
-              </div>
-            </li>
-          );
-        })}
+        {tasks.map((task) => (
+          <TaskRow
+            key={task.id}
+            task={task}
+            isConfirming={confirmingId === task.id}
+            isDeleting={deleteTask.isPending && deleteTask.variables?.id === task.id}
+            onRequestDelete={() => setConfirmingId(task.id)}
+            onCancelDelete={() => setConfirmingId(null)}
+            onConfirmDelete={() => deleteTask.mutate({ id: task.id })}
+          />
+        ))}
       </ul>
 
       <div className="load-more" ref={loadMoreRef}>

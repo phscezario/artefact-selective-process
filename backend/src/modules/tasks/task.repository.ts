@@ -46,7 +46,8 @@ export class InMemoryTaskRepository implements TaskRepository {
     const cursorIndex = cursor ? this.tasks.findIndex((task) => task.id === cursor) : -1;
     // An unknown cursor restarts from the first page instead of failing the request.
     const start = cursorIndex >= 0 ? cursorIndex + 1 : 0;
-    const items = this.tasks.slice(start, start + limit);
+    // Copies on the way out: a caller mutating a returned task must not rewrite the store.
+    const items = this.tasks.slice(start, start + limit).map((task) => ({ ...task }));
     const lastItem = items.at(-1);
     const hasMore = start + items.length < this.tasks.length;
 
@@ -58,7 +59,8 @@ export class InMemoryTaskRepository implements TaskRepository {
   }
 
   async findById(id: string): Promise<Task | null> {
-    return this.tasks.find((task) => task.id === id) ?? null;
+    const task = this.tasks.find((candidate) => candidate.id === id);
+    return task ? { ...task } : null;
   }
 
   async create(data: CreateTaskData): Promise<Task> {
@@ -71,12 +73,12 @@ export class InMemoryTaskRepository implements TaskRepository {
     };
 
     this.tasks.unshift(task);
-    return task;
+    return { ...task };
   }
 
   async update(id: string, data: UpdateTaskData): Promise<Task | null> {
     const index = this.tasks.findIndex((task) => task.id === id);
-    const current = this.tasks[index];
+    const current = index >= 0 ? this.tasks[index] : undefined;
 
     if (!current) {
       return null;
@@ -90,7 +92,7 @@ export class InMemoryTaskRepository implements TaskRepository {
     };
 
     this.tasks[index] = updated;
-    return updated;
+    return { ...updated };
   }
 
   async delete(id: string): Promise<boolean> {

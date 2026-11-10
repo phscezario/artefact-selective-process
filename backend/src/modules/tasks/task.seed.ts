@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Task, TaskStatus } from './task.schema';
+import { taskSchema } from './task.schema';
 
 interface SeedTask {
   titulo: string;
@@ -161,12 +162,18 @@ const SEED_TASKS: SeedTask[] = [
   },
 ];
 
+/**
+ * Parsed through the entity schema on purpose: seed data is hand-written, so a
+ * typo here fails at boot instead of leaking an invalid task to the repository.
+ */
 export function buildSeedTasks(now: Date = new Date()): Task[] {
-  return SEED_TASKS.map(({ titulo, descricao, status, minutesAgo }) => ({
+  const tasks = SEED_TASKS.map(({ titulo, descricao, status, minutesAgo }) => ({
     id: randomUUID(),
     titulo,
     descricao,
     status,
     dataCriacao: new Date(now.getTime() - minutesAgo * 60_000),
   }));
+
+  return taskSchema.array().parse(tasks);
 }
