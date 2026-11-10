@@ -21,6 +21,10 @@ export function TaskRow({
   onCancelDelete,
   onConfirmDelete,
 }: TaskRowProps) {
+  // A task that was never edited has the same timestamp in both fields; showing
+  // "updated" for it would only add noise.
+  const wasEdited = task.dataAtualizacao.getTime() !== task.dataCriacao.getTime();
+
   return (
     <li className="task-row">
       <div className="task-body">
@@ -38,6 +42,14 @@ export function TaskRow({
         <p className="task-meta">
           Created{' '}
           <time dateTime={toIsoString(task.dataCriacao)}>{formatDateTime(task.dataCriacao)}</time>
+          {wasEdited ? (
+            <>
+              {' · updated '}
+              <time dateTime={toIsoString(task.dataAtualizacao)}>
+                {formatDateTime(task.dataAtualizacao)}
+              </time>
+            </>
+          ) : null}
         </p>
       </div>
 

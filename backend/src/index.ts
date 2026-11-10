@@ -11,6 +11,7 @@ import 'server-only';
 export { appRouter } from './router';
 export type { AppRouter } from './router';
 export { createContext, type Context } from './context';
+export { TASK_STATUS_ORDER } from './modules/tasks/task.constants';
 export {
   createTaskInput,
   updateTaskInput,
@@ -19,13 +20,16 @@ export {
   taskSchema,
   taskStatusSchema,
   toFieldErrors,
+  DEFAULT_TASK_SORT,
   DESCRIPTION_MAX_LENGTH,
   LIST_DEFAULT_LIMIT,
   LIST_MAX_LIMIT,
+  TASK_SORT_VALUES,
   TITLE_MAX_LENGTH,
   type ListTasksInput,
   type Task,
   type TaskPage,
+  type TaskSort,
   type TaskStatus,
   type CreateTaskInput,
   type UpdateTaskInput,

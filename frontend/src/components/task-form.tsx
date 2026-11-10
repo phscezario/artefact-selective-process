@@ -11,7 +11,7 @@ import {
 } from '@artefact/backend/schemas';
 import { useTaskForm } from '@/lib/hooks/use-task-form';
 import { getErrorMessage, getFieldErrors } from '@/lib/errors';
-import { STATUS_OPTIONS, taskListInput } from '@/lib/tasks';
+import { STATUS_OPTIONS } from '@/lib/tasks';
 import { useTRPC } from '@/lib/trpc/client';
 import { useToast } from '@/components/toast';
 import type { TaskFormValues } from '@/lib/form';
@@ -56,9 +56,10 @@ export function TaskForm(props: TaskFormProps) {
         toast.success('Task created successfully.');
       }
 
-      // Drop the cached pages so the list reflects the change immediately.
+      // Drop the cached pages so the list reflects the change immediately. No input
+      // means every cached order is invalidated, not only the one on screen.
       await queryClient.invalidateQueries({
-        queryKey: trpc.tasks.list.infiniteQueryKey(taskListInput),
+        queryKey: trpc.tasks.list.infiniteQueryKey(),
       });
 
       // `/` is force-dynamic, so navigating re-renders the server component with

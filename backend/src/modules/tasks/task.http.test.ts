@@ -49,7 +49,7 @@ afterEach(() => {
 });
 
 describe('tasks HTTP adapter', () => {
-  it('keeps dataCriacao as a real Date across the wire', async () => {
+  it('keeps dataCriacao and dataAtualizacao as real Dates across the wire', async () => {
     const handler = createHandler();
 
     const response = await post(handler, 'tasks.create', { titulo: '  Wire me  ' });
@@ -60,10 +60,12 @@ describe('tasks HTTP adapter', () => {
     const payload = superjson.deserialize(body.result.data as never) as {
       titulo: string;
       dataCriacao: unknown;
+      dataAtualizacao: unknown;
     };
 
     expect(payload.titulo).toBe('Wire me');
     expect(payload.dataCriacao).toBeInstanceOf(Date);
+    expect(payload.dataAtualizacao).toBeInstanceOf(Date);
   });
 
   it('returns BAD_REQUEST with per-field errors for invalid input', async () => {

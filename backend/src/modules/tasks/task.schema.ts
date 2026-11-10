@@ -1,15 +1,19 @@
 import { z, type ZodError } from 'zod';
 import {
+  DEFAULT_TASK_SORT,
   DESCRIPTION_MAX_LENGTH,
   LIST_DEFAULT_LIMIT,
   LIST_MAX_LIMIT,
+  TASK_SORT_VALUES,
   TITLE_MAX_LENGTH,
 } from './task.constants';
 
 export {
+  DEFAULT_TASK_SORT,
   DESCRIPTION_MAX_LENGTH,
   LIST_DEFAULT_LIMIT,
   LIST_MAX_LIMIT,
+  TASK_SORT_VALUES,
   TITLE_MAX_LENGTH,
 } from './task.constants';
 
@@ -63,8 +67,10 @@ export const listTasksInput = z.object({
   /** Id of the last task of the previous page (keyset pagination). */
   cursor: idSchema.optional(),
   limit: z.number().int().min(1).max(LIST_MAX_LIMIT).default(LIST_DEFAULT_LIMIT),
+  sort: z.enum(TASK_SORT_VALUES).default(DEFAULT_TASK_SORT),
 });
 export type ListTasksInput = z.infer<typeof listTasksInput>;
+export type TaskSort = ListTasksInput['sort'];
 
 export const taskIdInput = z.object({ id: idSchema });
 
@@ -79,6 +85,8 @@ export const taskSchema = z.object({
   descricao: z.string().max(DESCRIPTION_MAX_LENGTH).nullable(),
   status: taskStatusSchema,
   dataCriacao: z.date(),
+  /** Bumped on every update; equal to `dataCriacao` while the task is untouched. */
+  dataAtualizacao: z.date(),
 });
 export type Task = z.infer<typeof taskSchema>;
 

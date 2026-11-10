@@ -1,6 +1,6 @@
 import { HydrateClient, getQueryClient, trpc } from '@/lib/trpc/server';
 import { TaskList } from '@/components/task-list';
-import { getNextPageParam, taskListInput } from '@/lib/tasks';
+import { getNextPageParam, parseTaskSort, taskListInput } from '@/lib/tasks';
 
 /**
  * Server-Side Rendering:
@@ -12,9 +12,16 @@ import { getNextPageParam, taskListInput } from '@/lib/tasks';
  */
 export const dynamic = 'force-dynamic';
 
-export default async function HomePage() {
+interface HomePageProps {
+  /** Chosen order, e.g. `?sort=updated-desc`; prefetched so SSR matches the client. */
+  searchParams: Promise<{ sort?: string | string[] }>;
+}
+
+export default async function HomePage({ searchParams }: HomePageProps) {
+  const sort = parseTaskSort((await searchParams).sort);
+
   await getQueryClient().prefetchInfiniteQuery(
-    trpc.tasks.list.infiniteQueryOptions(taskListInput, { getNextPageParam }),
+    trpc.tasks.list.infiniteQueryOptions(taskListInput(sort), { getNextPageParam }),
   );
 
   return (
@@ -29,7 +36,7 @@ export default async function HomePage() {
       </div>
 
       <HydrateClient>
-        <TaskList />
+        <TaskList sort={sort} />
       </HydrateClient>
     </div>
   );

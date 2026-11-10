@@ -8,6 +8,13 @@ interface SeedTask {
   status: TaskStatus;
   /** Relative to "now" so the list always looks fresh when the app boots. */
   minutesAgo: number;
+  /**
+   * When the task was last edited, also relative to "now". Omitted means "never
+   * edited", so `dataAtualizacao` equals `dataCriacao`. Some entries set it far
+   * from the creation time on purpose: that is what makes the "recently updated"
+   * sort visibly different from the creation order.
+   */
+  editedMinutesAgo?: number;
 }
 
 /**
@@ -33,6 +40,7 @@ const SEED_TASKS: SeedTask[] = [
     descricao: null,
     status: 'in_progress',
     minutesAgo: 130,
+    editedMinutesAgo: 15,
   },
   {
     titulo: 'Pair review on the onboarding funnel',
@@ -45,6 +53,7 @@ const SEED_TASKS: SeedTask[] = [
     descricao: 'The current cron job times out for accounts with more than 50k rows.',
     status: 'todo',
     minutesAgo: 260,
+    editedMinutesAgo: 45,
   },
   {
     titulo: 'Add empty states to the campaign list',
@@ -63,6 +72,7 @@ const SEED_TASKS: SeedTask[] = [
     descricao: 'Short guide covering naming, ownership and the rollback checklist.',
     status: 'in_progress',
     minutesAgo: 520,
+    editedMinutesAgo: 90,
   },
   {
     titulo: 'Upgrade the analytics SDK',
@@ -81,6 +91,7 @@ const SEED_TASKS: SeedTask[] = [
     descricao: 'LCP is around 4.2s on mobile; start with the bundle and the hero image.',
     status: 'in_progress',
     minutesAgo: 900,
+    editedMinutesAgo: 120,
   },
   {
     titulo: 'Collect feedback on the new design tokens',
@@ -93,6 +104,7 @@ const SEED_TASKS: SeedTask[] = [
     descricao: 'Reject rows with duplicated emails instead of silently dropping them.',
     status: 'in_progress',
     minutesAgo: 1180,
+    editedMinutesAgo: 200,
   },
   {
     titulo: 'Rotate the staging credentials',
@@ -111,6 +123,7 @@ const SEED_TASKS: SeedTask[] = [
     descricao: 'The page jumps when a filter is applied after loading page two.',
     status: 'todo',
     minutesAgo: 1710,
+    editedMinutesAgo: 300,
   },
   {
     titulo: 'Run the accessibility checklist on the dashboard',
@@ -147,6 +160,7 @@ const SEED_TASKS: SeedTask[] = [
     descricao: 'Confirm the anonymisation window with legal before the audit.',
     status: 'in_progress',
     minutesAgo: 3300,
+    editedMinutesAgo: 1500,
   },
   {
     titulo: 'Set up alerts for the payment webhook',
@@ -159,6 +173,7 @@ const SEED_TASKS: SeedTask[] = [
     descricao: 'No traffic in the last 30 days according to the gateway metrics.',
     status: 'done',
     minutesAgo: 4000,
+    editedMinutesAgo: 600,
   },
 ];
 
@@ -167,12 +182,13 @@ const SEED_TASKS: SeedTask[] = [
  * typo here fails at boot instead of leaking an invalid task to the repository.
  */
 export function buildSeedTasks(now: Date = new Date()): Task[] {
-  const tasks = SEED_TASKS.map(({ titulo, descricao, status, minutesAgo }) => ({
+  const tasks = SEED_TASKS.map(({ titulo, descricao, status, minutesAgo, editedMinutesAgo }) => ({
     id: randomUUID(),
     titulo,
     descricao,
     status,
     dataCriacao: new Date(now.getTime() - minutesAgo * 60_000),
+    dataAtualizacao: new Date(now.getTime() - (editedMinutesAgo ?? minutesAgo) * 60_000),
   }));
 
   return taskSchema.array().parse(tasks);

@@ -2,25 +2,28 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import type { TaskSort } from '@artefact/backend/schemas';
 import { useTRPC } from '@/lib/trpc/client';
 import { useToast } from '@/components/toast';
 import { getErrorMessage } from '@/lib/errors';
 import { getNextPageParam, taskListInput } from '@/lib/tasks';
 
 /**
- * Everything the list needs that is not markup: the paginated query, the
- * infinite-scroll sentinel and the delete flow with its confirmation state.
+ * Everything the list needs that is not markup: the paginated query for the
+ * requested order, the infinite-scroll sentinel and the delete flow with its
+ * confirmation state.
  */
-export function useTaskList() {
+export function useTaskList(sort: TaskSort) {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const toast = useToast();
 
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
+  const input = taskListInput(sort);
 
   const listQuery = useInfiniteQuery(
-    trpc.tasks.list.infiniteQueryOptions(taskListInput, { getNextPageParam }),
+    trpc.tasks.list.infiniteQueryOptions(input, { getNextPageParam }),
   );
   const { hasNextPage, isFetchingNextPage, fetchNextPage } = listQuery;
 
@@ -30,7 +33,7 @@ export function useTaskList() {
         toast.success('Task deleted.');
         // The list is paginated, so every cached page has to be refetched.
         await queryClient.invalidateQueries({
-          queryKey: trpc.tasks.list.infiniteQueryKey(taskListInput),
+          queryKey: trpc.tasks.list.infiniteQueryKey(input),
         });
       },
       onError: (deleteError) => {
