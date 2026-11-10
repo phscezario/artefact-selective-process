@@ -1,156 +1,225 @@
-# Part 1 — Theoretical questions
+# Part 1 — Theoretical Questions
 
-## 1. React and Next.js: rendering and strategies
+## 1. React and Next.js: Rendering and Strategies
 
-All three strategies end with React rendering the same components. What changes is **where** the
-HTML is produced and **when** — and, because of that, what the user sees before the JavaScript
-arrives.
+### a) Explain the differences between CSR, SSR and SSG
 
-### a) CSR, SSR and SSG
+The main difference between these rendering strategies is where and when the page is generated. This affects the initial user experience, performance, SEO and the resources required to run the application.
 
-**Client-Side Rendering (CSR).** The server returns an almost empty HTML document plus a JavaScript
-bundle. React mounts in the browser, then fetches the data over HTTP and paints the screen. The
-first meaningful paint waits for the bundle to download, parse and execute _and_ for the data
-request to return. The HTML is not useful content, so crawlers that do not execute JavaScript (and
-most social/link previews) see nothing.
+**Client-Side Rendering (CSR)**
 
-**Server-Side Rendering (SSR).** The server renders the component tree into HTML **per request**,
-already with the data, and sends that HTML. The browser can paint before the bundle is parsed,
-then hydration attaches the event handlers. Time to First Byte now depends on your data source,
-and each request costs server work. SSR does not remove JavaScript from the page — it only moves
-the first paint to the server.
+With CSR, the browser is responsible for rendering the application. The server initially sends the HTML structure and JavaScript files, and React takes over in the browser, fetching the required data and building the interface.
 
-**Static Site Generation (SSG).** HTML is generated **at build time**, and the same file is served
-to everyone from a CDN (optionally regenerated later — `revalidate`/ISR). There is no per-request
-server work, so it is the cheapest and usually the fastest option, but the content is frozen until
-the next build or revalidation, and it cannot contain per-user data.
+This approach works particularly well for interactive applications, such as dashboards, administrative systems and platforms where users spend a lot of time interacting with the application.
 
-A useful mental model: **CSR pays at the user's device, SSR pays at the server, SSG pays at build
-time.**
+The main disadvantage is the initial loading experience. Depending on the amount of JavaScript and the data required, users may have to wait before seeing meaningful content. It can also create SEO challenges when the content depends entirely on JavaScript execution.
 
-In Next.js 15 these are not app-wide choices — they are per route. A route is static unless it uses
-a dynamic API (`cookies()`, `headers()`, `searchParams`) or opts into `dynamic = 'force-dynamic'`.
-Server Components also move data fetching to the server without shipping that code to the browser,
-and streaming (Suspense) sends HTML progressively while slower parts resolve.
+**Server-Side Rendering (SSR)**
 
-### b) When each one helps and when it hurts
+With SSR, the server generates the HTML for each request, usually using the latest available data, and sends the rendered page to the browser. React then hydrates the page, making its interactive elements functional.
 
-| Strategy | Fits well                                                                                                                             | Hurts when                                                                                                                                                            |
-| -------- | ------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **CSR**  | Authenticated apps, dashboards, editors, anything behind a login where SEO is irrelevant and the user stays for a long session        | Public content pages, social previews, low-end mobile devices, first-load performance budgets                                                                         |
-| **SSR**  | Pages whose content must be fresh **and** visible immediately: product pages with price/stock, feeds, checkout, personalised listings | Very high traffic on cacheable pages (you pay per request for nothing), slow upstream APIs (TTFB inherits the latency), pages whose content is identical for everyone |
-| **SSG**  | Marketing pages, docs, blog, changelog, legal pages, catalogues that change a few times a day                                         | Per-user data, high-frequency updates, enormous catalogues (build time and memory grow), drafts/previews without an escape hatch                                      |
+The biggest advantage is that users can see the content earlier, without waiting for the entire client-side application to load. It is also useful for pages that need to be indexed by search engines while displaying frequently changing information.
 
-Concrete examples:
+On the other hand, rendering every request on the server introduces additional processing costs. If the application depends on slow APIs or databases, this can also affect response times.
 
-- **CSR** — an internal analytics dashboard: the user is authenticated, the data is private, SEO is
-  meaningless and the app lives for minutes in the tab. Shipping it as an SPA is simpler and the
-  hosting is a CDN. The same choice on the marketing homepage would be a mistake: blank first paint,
-  weak previews and a worse LCP on mobile.
-- **SSR** — an e-commerce product page. Price and stock change per region and per minute, and the
-  page must be indexable and readable on the first paint. The cost appears when a promotion drives
-  a traffic spike: without caching, every visit becomes a server render.
-- **SSG** — documentation and a pricing page. They change a few times a week, are read by everyone,
-  and benefit from being served from the edge with no compute. The failure mode is a price that
-  stays wrong until someone redeploys — which is exactly why those pages often use ISR with a short
-  revalidation window.
-- **Hybrid** — the common real-world answer: a Next.js app with SSG for the public pages, SSR for
-  the pages that depend on the session, and CSR for the interactive parts inside them. Per-route
-  decisions, not a single global one.
+**Static Site Generation (SSG)**
 
-**How this case applies it.** The task list uses **SSR**: the in-memory store changes on every
-mutation, so the HTML has to be produced per request, and the first paint must already contain the
-tasks (a static build would freeze the seeded data). The create/edit forms are client components,
-because the interaction is local and the mutation is client-side. If the list were public and
-rarely changed, SSG with revalidation would clearly be the better trade-off — and the mutations
-would have to invalidate the cache instead of just re-rendering.
+With SSG, the HTML is generated during the build process rather than for every user request. The generated files can then be distributed through a CDN.
+
+This is generally a very efficient approach because the server does not need to generate the page every time someone accesses it.
+
+It works particularly well for content that does not change frequently, such as documentation, blogs, landing pages and company websites.
+
+The limitation is that the generated content can become outdated. When information changes, the application needs a new build or a revalidation strategy, such as Incremental Static Regeneration (ISR).
+
+In simple terms, CSR renders in the browser, SSR renders on the server for each request, and SSG generates the page ahead of time.
+
+In Next.js 15, these strategies can be combined depending on the requirements of each route. Server Components, Client Components, caching and dynamic rendering allow developers to choose the most appropriate approach for different parts of the same application.
+
+### b) In which scenarios can each approach be advantageous or problematic? Give practical examples.
+
+The choice depends mainly on the type of application, how frequently its data changes, and how users interact with it.
+
+**CSR — Client-Side Rendering**
+
+A good example would be an internal management platform or an analytics dashboard.
+
+In these applications, users are usually authenticated, interact with several components and frequently update information. SEO is generally not a priority.
+
+CSR can simplify the development of highly interactive interfaces. However, using it for a public website or an e-commerce landing page could negatively affect the initial loading experience and search engine visibility.
+
+**SSR — Server-Side Rendering**
+
+An e-commerce platform is a good example.
+
+Product information, prices and stock availability can change frequently. Rendering the page on the server allows users to receive updated information while also making the content available in the initial HTML.
+
+The disadvantage appears when traffic increases significantly. Rendering every request can become expensive, particularly when the application depends on external services or database queries.
+
+Caching can help reduce this overhead, but it needs to be designed carefully to avoid serving outdated information.
+
+**SSG — Static Site Generation**
+
+Documentation websites, blogs and marketing pages are good examples.
+
+Their content usually does not change with every request, so generating the pages during the build process is more efficient.
+
+However, this approach becomes less attractive when the content changes frequently or depends on user-specific information. ISR can help when content needs periodic updates without rebuilding the entire application.
+
+**Combining different strategies**
+
+In real projects, I would not necessarily choose only one rendering strategy for the entire application.
+
+For example, an e-commerce platform could use SSG for marketing pages, SSR for product pages that require fresh information, and CSR for interactive features such as shopping carts and customer account areas.
+
+I believe the important thing is to understand the requirements of each part of the application before choosing the rendering strategy.
+
+**Application to this challenge**
+
+For this task management application, SSR is appropriate for the listing page because the requirements explicitly ask for the tasks to be loaded before the page is delivered to the user.
+
+The creation and editing forms, on the other hand, benefit from Client Components because they require user interaction, form state management and event handling.
+
+This separation allows the application to take advantage of server-side rendering without making the entire interface dependent on client-side execution.
 
 ---
 
-## 2. Backend: concepts and approaches
+## 2. Backend: Concepts and Approaches
 
-### a) The main ways to implement a backend for a web application
+### a) What are the main ways to implement a backend for a web application?
 
-The options differ in **where the code runs** and **how the client talks to it**. In practice:
+There are different ways to structure a backend, and I believe the decision should be based on the application's requirements, complexity, integration needs and expected growth.
 
-| Approach                                                                         | What it is                                             | Strengths                                                                         | Trade-offs                                                                              |
-| -------------------------------------------------------------------------------- | ------------------------------------------------------ | --------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| Full-stack framework (Next.js route handlers/RSC, Remix, Rails, Laravel, Django) | Backend and frontend in one deployable                 | One codebase, one deploy, shared types and validation, fastest path to production | Frontend and backend lifecycles are coupled; the backend scales together with the UI    |
-| REST API + SPA/mobile                                                            | Resource-oriented endpoints consumed by any client     | HTTP-level caching, language-agnostic, mature tooling, observable per route       | Contract drift without codegen; chatty round trips; types maintained twice              |
-| GraphQL                                                                          | One endpoint, client-driven selection                  | Great when several clients need different shapes; avoids over/under-fetching      | Complexity (resolvers, N+1, caching, query cost limits), per-field authorisation        |
-| Typed RPC (tRPC, gRPC, Connect)                                                  | Procedures with a shared contract                      | End-to-end types, little boilerplate; gRPC for polyglot/internal services         | Coupled client/server versions; weaker fit for public or multi-language consumers       |
-| BFF (Backend for Frontend)                                                       | A backend per client that aggregates internal services | Shapes data per client, hides internal topology                                   | One more service to own; duplicated aggregation logic                                   |
-| BaaS / serverless (Supabase, Firebase, Lambda, Vercel functions)                 | Managed backend or functions                           | Very fast start, ops delegated, pay per use                                       | Cold starts, execution limits, vendor lock-in, harder local parity                      |
-| Microservices / event-driven                                                     | Independent services per domain                        | Independent scaling and ownership, fault isolation                                | Platform maturity, tracing, eventual consistency — usually overkill for a small product |
+Some of the most common approaches are:
 
-Two pragmatic points I would add from experience:
+**1. Backend integrated with a full-stack framework**
 
-1. **The transport is a detail; the domain model is not.** Keeping the domain behind an interface
-   (a repository, a service layer) is what makes changing from "one Next.js app" to "a separate API
-   service" cheap. Choosing REST vs tRPC today is much less expensive than realising in six months
-   that business rules are spread across route handlers.
-2. **Start with the simplest thing that has a clear boundary.** A monolith with a well-defined
-   backend module is usually a better start than microservices, and a separate service is worth it
-   when it has its own scaling, deployment or ownership needs — not by default.
+Frameworks such as Next.js, Remix, Django and Laravel allow frontend and backend functionality to live within the same application.
 
-**What I did here:** the backend is a workspace package (`@artefact/backend`) with the router,
-schemas and repository. It is mounted into Next.js through a single route handler using the fetch
-adapter, but nothing in it depends on Next.js. The server components call it in-process. That keeps
-the deploy simple (one container) while preserving the boundary: another repository implementation
-or a Fastify server would not touch the domain.
+This is a practical approach for applications where a separate backend service is not necessary. It simplifies deployment, reduces infrastructure complexity and can make development faster.
 
-### b) tRPC: advantages and disadvantages
+The main limitation is that frontend and backend responsibilities can become tightly coupled if the application grows without clear boundaries.
 
-Yes — this case uses tRPC v11 with the TanStack React Query integration, and the reasoning below is
-the one I applied while building it.
+**2. REST APIs**
 
-**What it is.** tRPC is an RPC framework for TypeScript where the server router _is_ the contract.
-The client imports the router **type** (`typeof appRouter`) and infers input and output types for
-every procedure. No codegen, no OpenAPI file, no duplicated interfaces.
+REST is one of the most common approaches for building backend services.
+
+The backend exposes endpoints representing resources, and clients communicate with them using standard HTTP methods such as GET, POST, PUT, PATCH and DELETE.
+
+One of its biggest advantages is flexibility. Different applications, technologies and platforms can consume the same API.
+
+It is also a mature approach with well-established standards for authentication, caching, documentation and monitoring.
+
+The main challenge is maintaining consistency between frontend and backend contracts, especially when the application has many endpoints and different clients.
+
+**3. GraphQL**
+
+GraphQL allows clients to request exactly the data they need through a query language.
+
+It can be useful when multiple clients consume the same backend but require different data structures, such as web applications, mobile applications and external integrations.
+
+However, it introduces additional complexity around resolvers, authorization, caching, query performance and database access.
+
+**4. RPC and typed APIs**
+
+RPC approaches expose backend operations as procedures rather than focusing exclusively on resources.
+
+tRPC is a good example for TypeScript applications because it provides end-to-end type safety between the backend and frontend.
+
+This reduces duplicated contracts and makes development more straightforward when both sides are maintained by the same team.
+
+The main limitation is that this approach is more tightly coupled to the technologies used by the client and server.
+
+**5. Microservices and event-driven architectures**
+
+For larger systems, the backend can be divided into independent services organized around business domains.
+
+Each service can have its own responsibilities, deployment lifecycle and scaling requirements. Communication can happen through HTTP APIs, messaging systems or events.
+
+This approach is useful when different parts of the system have independent scaling, availability or ownership requirements.
+
+However, it also introduces operational complexity, including distributed tracing, service communication, eventual consistency and failure handling.
+
+I have worked with distributed systems and integrations where these concerns are important, particularly when dealing with payment processing and operations that must avoid duplicate execution.
+
+**My approach to choosing an architecture**
+
+I don't believe there is one approach that works for every application.
+
+For a smaller application, a well-structured backend within a single project is often enough. As business requirements grow, it may become necessary to separate services or introduce different communication strategies.
+
+What I consider important is keeping business rules and responsibilities well organized, so that the application can evolve without requiring unnecessary changes across the entire system.
+
+The architecture should solve the current problem while leaving room for future requirements.
+
+### b) Do you know tRPC? What are its main advantages and disadvantages, especially regarding security, typing and scalability?
+
+Yes. tRPC is a framework that allows TypeScript applications to communicate through procedures while maintaining type safety between the backend and frontend.
+
+Instead of manually defining API contracts or generating types from a separate specification, the client can infer types directly from the backend router.
+
+I see this as one of its biggest advantages, especially when frontend and backend development happen within the same project or team.
 
 **Advantages**
 
-- **Real end-to-end typing.** The input type comes from the Zod schema and the output type from the
-  resolver's return value. Renaming a field or changing a return shape breaks compilation at every
-  call site instead of failing at runtime.
-- **One validation layer, reused.** The same Zod schema validates the API and the form (the create
-  form calls `createTaskInput.safeParse`), so client and server rules cannot drift.
-- **Excellent developer experience.** With React Query you get caching, invalidation, infinite
-  queries and optimistic updates without writing a client. Requests are batched by default, which
-  reduces round trips on pages that load several resources.
-- **Small surface area.** One endpoint, one middleware chain, errors with stable codes. For an app
-  where the same team owns both sides, it is usually less work than REST + a generated client.
+**End-to-end type safety**
 
-**Disadvantages**
+The frontend can infer the expected input and output types directly from the backend procedures.
 
-- **Security is not part of the type system.** Types are erased at runtime; a handcrafted request
-  can send anything. Every input still needs runtime validation (Zod) and every procedure still
-  needs an authorisation check. tRPC gives you neither authentication, nor CSRF protection, nor
-  rate limiting, nor per-procedure policy. With cookie-based sessions you still need CSRF
-  protection, and a single batch endpoint makes naive per-route rate limiting harder than with REST.
-- **Error payloads can leak.** By default the error shape can carry stack traces and internal
-  messages. It has to be formatted explicitly — in this project I strip the stack in production and
-  expose only a code, a message and field-level errors.
-- **Coupling and versioning.** The type safety only exists while both sides are TypeScript in the
-  same repository and version. A Kotlin app, a partner integration or a public API cannot consume
-  it; and because types are erased, a deployed server and a stale client can silently disagree at
-  runtime. REST/GraphQL would version that contract explicitly.
-- **Operational ergonomics.** Everything lives under `/api/trpc`, so per-resource CDN caching and
-  per-endpoint HTTP semantics do not come for free. Metrics, rate limits and caching have to be
-  built around the procedure `path` instead of the URL. Large routers also slow down `tsc` and the
-  editor, and batching plus `superjson` add payload overhead.
+This reduces duplicated interfaces and helps identify contract changes during development. For example, if a backend procedure changes the structure of its response, TypeScript can identify the affected frontend components.
 
-**Scalability.** Under the hood it is HTTP, so it scales like any Node service — the constraints are
-the ones above, not the transport. Two practical notes: breaking changes are all-or-nothing
-(one router, one deployment), and batching means a single request can do a lot of work, so limits
-and timeouts matter more than with small REST calls.
+**Simpler validation and maintenance**
 
-**When I would not use it.** Public or partner APIs, polyglot clients, strict HTTP caching per
-resource, or a team that is not comfortable with TypeScript. In those cases a versioned REST/GraphQL
-contract with a generated client is a better fit.
+tRPC works well with validation libraries such as Zod.
 
-**What I did to reduce the risks here:** Zod on every input; `fieldErrors` in the error formatter so
-the form can point at the offending field; stacks removed in production; a repository interface
-instead of coupling the router to the store; a timing middleware that logs the procedure path (the
-seed of per-procedure observability); and a router with no Next.js dependency, so replacing tRPC
-with REST later would not touch the domain.
+We can define the expected input structure once and use it to validate incoming requests on the server. The same schema can also be reused in the frontend to provide immediate feedback before submitting a form.
+
+This helps keep validation rules consistent across the application.
+
+**Developer experience**
+
+The integration with TanStack Query provides useful features such as caching, loading states, query invalidation and mutations.
+
+It reduces the amount of repetitive code required to manage communication between the frontend and backend.
+
+**Less boilerplate**
+
+Compared with a traditional REST implementation that requires separately maintained contracts or code generation, tRPC can make development more straightforward when working entirely within the TypeScript ecosystem.
+
+**Disadvantages and limitations**
+
+**Security**
+
+Type safety should never be confused with security.
+
+TypeScript types are removed at runtime, which means the backend must still validate every incoming request. A client can send unexpected or malicious data regardless of what the frontend types indicate.
+
+Authentication, authorization, input validation, rate limiting and proper error handling must still be implemented.
+
+For example, a procedure that updates a task should verify that the task exists and, in a real multi-user application, that the current user has permission to modify it.
+
+**Technology coupling**
+
+One limitation is that tRPC is primarily designed for TypeScript environments.
+
+If the application needs to expose an API to external partners, mobile applications written in different languages or services built with other technologies, REST or GraphQL may be a better option.
+
+**Scalability and maintenance**
+
+tRPC itself is not necessarily a scalability limitation. It uses HTTP for communication and can run on infrastructure similar to other Node.js applications.
+
+The real considerations are related to the backend architecture, database performance, request volume, caching, resource consumption and deployment strategy.
+
+As the application grows, large routers and tightly coupled frontend/backend contracts can also make maintenance more challenging.
+
+It is important to keep procedures organized by business responsibility and avoid putting all application logic directly inside the routers.
+
+**When would I choose tRPC?**
+
+I would choose tRPC when the frontend and backend are part of the same TypeScript ecosystem, especially when development speed, maintainability and type safety are important.
+
+For example, it is a good fit for internal platforms, dashboards and applications developed by a single team.
+
+For public APIs, third-party integrations or systems with multiple technologies, I would generally prefer REST or GraphQL because they provide a more independent contract between consumers and the backend.
+
+Ultimately, I see tRPC as a good tool for the right scenario, not as a replacement for every API architecture.
