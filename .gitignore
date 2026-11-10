@@ -1,0 +1,51 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Next.js
+.next/
+out/
+next-env.d.ts
+*.tsbuildinfo
+
+# Build output
+dist/
+build/
+
+# Tests and coverage
+coverage/
+.vitest/
+
+# Environment files (never commit secrets)
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Editors and OS files
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+
+# Local tooling
+.opencode/
+
+# Third-party material received from Artefact.
+# It is not ours to redistribute in a public repository.
+docs/company-attachments/
+
+# Generated submission artifacts (PDF with personal data)
+submission/
+
+# Misc
+*.pem
+.vercel

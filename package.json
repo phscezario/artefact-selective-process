@@ -1,0 +1,37 @@
+{
+  "name": "artefact-selective-process",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Written case for the Artefact Software Engineer (Senior, Brazil) selection process: a Next.js task manager with an in-memory tRPC backend.",
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "engines": {
+    "node": ">=20.11.0"
+  },
+  "scripts": {
+    "dev": "npm run dev --workspace @artefact/frontend",
+    "build": "npm run build --workspace @artefact/frontend",
+    "start": "npm run start --workspace @artefact/frontend",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspace @artefact/backend",
+    "test:watch": "npm run test:watch --workspace @artefact/backend",
+    "verify": "npm run lint && npm run typecheck && npm run test && npm run build",
+    "submission": "node scripts/build-submission.mjs"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@next/eslint-plugin-next": "^15.5.29",
+    "eslint": "^9.39.5",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.14.0",
+    "marked": "^18.2.0",
+    "prettier": "^3.9.10",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.72.2"
+  }
+}
