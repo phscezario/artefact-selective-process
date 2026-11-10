@@ -7,19 +7,20 @@ import { marked } from 'marked';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 
 /**
- * Builds the submission PDFs from the Markdown sources.
+ * Builds the submission PDF from the Markdown sources.
  *
  * Markdown -> HTML (with a cover and a table of contents) -> headless Chrome
  * printing to A4 -> pdf-lib stamping the footer and the document metadata.
  *
- * Two documents are produced:
- *  - the written case (`docs/answers`), with a full-page cover;
- *  - the repository README, with a compact cover on the first page.
+ * The form has a single upload field ("Theoretical Questions or Documentation"),
+ * so one file carries everything: the theoretical answers, the practical case and
+ * the repository README as an appendix.
  *
- * Each document declares its own base directory: the HTML files live in
- * `submission/`, so a single `<base>` would not resolve the images of both.
+ * Each part declares its own base directory: the parts come from `docs/answers`
+ * and the repository root, so relative images are resolved to absolute `file://`
+ * URLs before the single HTML file is written.
  *
- * The PDFs are printed into `submission/` (gitignored, the folder uploaded to the
+ * The PDF is printed into `submission/` (gitignored, the copy uploaded to the
  * form) and copied to `docs/answers/` (committed, so the repository links to the
  * same document that was submitted).
  */
@@ -45,16 +46,30 @@ const CHROME_CANDIDATES = [
   '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
 ];
 
-const ANSWER_PARTS = [
+/**
+ * One submission, one PDF: the form has a single upload field ("Theoretical
+ * Questions or Documentation"), so the README travels as the appendix instead of
+ * as a second file.
+ */
+const DOCUMENT_PARTS = [
   {
-    file: 'part-1-theory.md',
+    file: path.join(ANSWERS_DIR, 'part-1-theory.md'),
+    baseDir: ANSWERS_DIR,
     title: 'Part 1 — Theoretical questions',
     prefix: 'p1',
   },
   {
-    file: 'part-2-practical.md',
+    file: path.join(ANSWERS_DIR, 'part-2-practical.md'),
+    baseDir: ANSWERS_DIR,
     title: 'Part 2 — Practical case',
     prefix: 'p2',
+  },
+  {
+    file: path.join(ROOT, 'README.md'),
+    baseDir: ROOT,
+    title: 'Appendix — Project README',
+    prefix: 'rm',
+    appendix: true,
   },
 ];
 
@@ -108,6 +123,20 @@ function absoluteLinks(html) {
 }
 
 const BOX_DRAWING_CHARS = /[┌└├┼│─╔╚║═]/;
+
+/**
+ * Images are resolved against the base directory of the Markdown they came from,
+ * so one HTML file can mix `docs/answers` and the repository root.
+ */
+function absoluteImages(html, baseDir) {
+  return html.replace(/<img([^>]*?)src="([^"]*)"/g, (match, prefix, src) => {
+    if (/^(?:[a-z][a-z0-9+.-]*:|\/\/|#)/i.test(src)) {
+      return match;
+    }
+
+    return `<img${prefix}src="${pathToFileURL(path.resolve(baseDir, src)).href}"`;
+  });
+}
 
 /**
  * Marks ASCII diagrams so they are printed with a line height equal to the glyph
@@ -443,62 +472,14 @@ const css = `
     letter-spacing: -0.02em;
   }
 
-  /* ---------- Compact cover (README) ---------- */
+  /* ---------- Table of contents (three parts on one page) ---------- */
 
-  .compact-cover {
-    padding-bottom: 4mm;
-    border-bottom: 3px solid #4f46e5;
+  .toc-combined .toc-part {
+    margin-top: 5.5mm;
   }
 
-  .eyebrow {
-    margin: 0 0 3mm;
-    font-size: 8.6pt;
-    font-weight: 650;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: #4f46e5;
-  }
-
-  .compact-cover h1 {
-    margin: 0;
-    font-size: 25pt;
-    line-height: 1.1;
-    letter-spacing: -0.025em;
-  }
-
-  .compact-meta {
-    margin: 3mm 0 0;
-    font-size: 9pt;
-    color: #5b6270;
-  }
-
-  .toc-compact {
-    margin: 6mm 0 7mm;
-  }
-
-  .toc-compact .toc-title {
-    margin: 0 0 3mm;
-    font-size: 10.4pt;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: #6b7280;
-  }
-
-  .toc-compact ul {
-    margin: 0;
-    padding-left: 5mm;
-    column-count: 2;
-    column-gap: 10mm;
-    font-size: 9.6pt;
-  }
-
-  .toc-compact li {
-    break-inside: avoid;
-    margin: 1mm 0;
-  }
-
-  .toc-compact a {
-    color: #16191f;
+  .toc-combined li {
+    margin: 1.1mm 0;
   }
 
   /* ---------- README specifics: denser, print-friendly ---------- */
@@ -562,16 +543,26 @@ function pageShell({ lang = 'en', title, baseDir, extraClass = '', body }) {
 
 const generatedOn = new Intl.DateTimeFormat('en-US', { dateStyle: 'long' }).format(new Date());
 
-async function buildAnswersHtml() {
+async function buildSubmissionHtml() {
   const renderedParts = [];
 
-  for (const part of ANSWER_PARTS) {
-    const markdown = await readFile(path.join(ANSWERS_DIR, part.file), 'utf8');
-    const html = markDiagrams(marked.parse(markdown));
-    const { html: withIds, entries } = withHeadingIds(html, part.prefix);
+  for (const part of DOCUMENT_PARTS) {
+    const markdown = await readFile(part.file, 'utf8');
+    let html = markDiagrams(marked.parse(markdown));
+
+    if (part.appendix) {
+      // The README title becomes the appendix heading, so every part keeps a
+      // single h1.
+      html = html.replace(/<h1>[\s\S]*?<\/h1>/, '');
+    }
+
+    const { html: withIds, entries } = withHeadingIds(
+      absoluteImages(absoluteLinks(html), part.baseDir),
+      part.prefix,
+    );
 
     renderedParts.push({ ...part, html: withIds, entries });
-    console.info(`[submission] ${part.file}: ${entries.length} sections`);
+    console.info(`[submission] ${path.basename(part.file)}: ${entries.length} sections`);
   }
 
   const toc = renderedParts
@@ -587,13 +578,18 @@ async function buildAnswersHtml() {
     .join('');
 
   const body = renderedParts
-    .map((part) => `<section class="part">${part.html}</section>`)
+    .map(
+      (part) => `
+        <section class="part${part.appendix ? ' doc-readme' : ''}">
+          ${part.appendix ? `<h1>${part.title}</h1>` : ''}
+          ${part.html}
+        </section>`,
+    )
     .join('\n');
 
   return pageShell({
     title: PDF_BASENAME,
-    baseDir: ANSWERS_DIR,
-    extraClass: 'doc-answers',
+    baseDir: ROOT,
     body: `
     <section class="cover">
       <div class="cover-top">
@@ -606,7 +602,8 @@ async function buildAnswersHtml() {
         <p class="cover-role">${AUTHOR}</p>
         <p class="cover-subtitle">
           Theory and practice of rendering, backend approaches and tRPC, followed by a task manager
-          built with Next.js 15 and a transport-agnostic tRPC backend.
+          built with Next.js 15 and a transport-agnostic tRPC backend. The appendix is the project
+          README: how to run, test and verify the result.
         </p>
         <div class="cover-rule"></div>
       </div>
@@ -618,12 +615,14 @@ async function buildAnswersHtml() {
         <dd>${ROLE}</dd>
         <dt>Repository</dt>
         <dd>${REPO_LABEL}</dd>
+        <dt>Contents</dt>
+        <dd>Theoretical questions · practical case · README</dd>
         <dt>Date</dt>
         <dd>${generatedOn}</dd>
       </dl>
     </section>
 
-    <section class="toc">
+    <section class="toc toc-combined">
       <h1>Contents</h1>
       ${toc}
     </section>
@@ -632,69 +631,29 @@ async function buildAnswersHtml() {
   });
 }
 
-async function buildReadmeHtml() {
-  const markdown = await readFile(path.join(ROOT, 'README.md'), 'utf8');
-  const html = markDiagrams(marked.parse(markdown));
-  const heading = html.match(/<h1>([\s\S]*?)<\/h1>/);
-  const title = heading ? stripTags(heading[1]) : 'Project README';
-  const withoutTitle = heading ? html.replace(heading[0], '') : html;
-  const { html: withIds, entries } = withHeadingIds(absoluteLinks(withoutTitle), 'rm');
-
-  console.info(`[submission] README.md: ${entries.length} sections`);
-
-  const toc = entries.map((entry) => `<li><a href="#${entry.id}">${entry.label}</a></li>`).join('');
-
-  return pageShell({
-    title: `${PDF_BASENAME} - README`,
-    baseDir: ROOT,
-    extraClass: 'doc-readme',
-    body: `
-    <section class="compact-cover">
-      <p class="eyebrow">Artefact · Software Engineer (Senior, Brazil)</p>
-      <h1>${title}</h1>
-      <p class="compact-meta">${AUTHOR} · ${REPO_LABEL} · ${generatedOn}</p>
-    </section>
-
-    <section class="toc-compact">
-      <p class="toc-title">Contents</p>
-      <ul>${toc}</ul>
-    </section>
-
-    <section class="body">
-      ${withIds}
-    </section>`,
-  });
-}
-
 const DOCUMENTS = [
   {
-    id: 'answers',
-    htmlFile: path.join(OUT_DIR, 'answers.html'),
+    id: 'submission',
+    htmlFile: path.join(OUT_DIR, 'submission.html'),
     pdfFile: path.join(OUT_DIR, `${PDF_BASENAME}.pdf`),
-    build: buildAnswersHtml,
+    build: buildSubmissionHtml,
     footer: {
       left: `${AUTHOR} · ${ROLE} · Written case`,
       skipFirstPage: true,
     },
     meta: {
-      title: `${PDF_BASENAME} — written case`,
-      subject: 'Written case: theory and practice (Next.js 15 + tRPC task manager)',
-      keywords: ['written case', 'Next.js', 'tRPC', 'TypeScript', 'software engineer'],
-    },
-  },
-  {
-    id: 'readme',
-    htmlFile: path.join(OUT_DIR, 'readme.html'),
-    pdfFile: path.join(OUT_DIR, `${PDF_BASENAME} - README.pdf`),
-    build: buildReadmeHtml,
-    footer: {
-      left: `${AUTHOR} · ${ROLE} · Repository README`,
-      skipFirstPage: false,
-    },
-    meta: {
-      title: `${PDF_BASENAME} — README`,
-      subject: 'Task manager built with Next.js 15, tRPC and an in-memory repository',
-      keywords: ['README', 'Next.js', 'tRPC', 'TypeScript', 'task manager'],
+      title: `${PDF_BASENAME} — written case and documentation`,
+      subject:
+        'Written case (theory and practice) plus the README of a Next.js 15 + tRPC task manager',
+      keywords: [
+        'written case',
+        'README',
+        'Next.js',
+        'tRPC',
+        'TypeScript',
+        'software engineer',
+        'task manager',
+      ],
     },
   },
 ];
