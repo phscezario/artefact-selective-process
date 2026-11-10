@@ -12,7 +12,14 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body>
+      {/*
+        Some browser extensions (ColorZilla, Grammarly, ...) mutate <body> right
+        before React hydrates. ColorZilla adds `cz-shortcut-listen`, which makes
+        React log a hydration mismatch that is not our code's fault. This flag
+        only silences attribute/text mismatches on this element, so a real
+        mismatch anywhere inside the tree still surfaces.
+      */}
+      <body suppressHydrationWarning>
         <Providers>
           <div className="app-shell">
             <header className="site-header">
