@@ -27,7 +27,7 @@ with server-side rendering on the list page and an infinite-scroll bonus.
 ## How to run
 
 ```bash
-# Node 20.11+ (see .nvmrc)
+# Node 22+ (see .nvmrc)
 npm install
 npm run dev          # http://localhost:3000
 ```
@@ -45,10 +45,10 @@ Docker:
 docker compose up --build   # http://localhost:3000
 ```
 
-Quality gate (the same one CI runs):
+Quality gate (the same command CI runs):
 
 ```bash
-npm run verify       # lint -> typecheck -> test -> build
+npm run verify       # lint -> format:check -> typecheck -> test -> build
 ```
 
 ## Architecture
@@ -71,7 +71,8 @@ npm run verify       # lint -> typecheck -> test -> build
 │  trpc.ts   ── initTRPC, superjson, error formatter, timing middleware │
 │  context.ts ── per-request context (repository injection)            │
 │  modules/tasks/                                                     │
-│    task.schema.ts     Zod input schemas + domain types              │
+│    task.constants.ts  limits shared with the UI (no Zod in the client bundle) │
+│    task.schema.ts     Zod inputs, entity schema, field-error mapping         │
 │    task.router.ts     list / getById / create / update / delete      │
 │    task.repository.ts TaskRepository port + in-memory adapter        │
 └──────────────────────────────────────────────────────────────────────┘
@@ -87,7 +88,7 @@ Single endpoint: `POST|GET /api/trpc/*` (fetch adapter). Procedures:
 
 | Procedure       | Type     | Input                                                       | Errors                     |
 | --------------- | -------- | ----------------------------------------------------------- | -------------------------- |
-| `tasks.list`    | query    | `{ limit: 1..50, cursor?: string }`                         | `BAD_REQUEST`              |
+| `tasks.list`    | query    | `{ limit?: 1..50 (default 8), cursor?: string }`            | `BAD_REQUEST`              |
 | `tasks.getById` | query    | `{ id }`                                                    | `NOT_FOUND`                |
 | `tasks.create`  | mutation | `{ titulo, descricao?, status? }`                           | `BAD_REQUEST`              |
 | `tasks.update`  | mutation | `{ id, titulo?, descricao?, status? }` (at least one field) | `BAD_REQUEST`, `NOT_FOUND` |
@@ -133,23 +134,29 @@ only consequence is that a deleted cursor restarts from the first page.
 ## Tests
 
 ```bash
-npm test        # vitest run (backend)
+npm test        # vitest run in both workspaces
 ```
 
-10 tests cover: creation with trimmed title and normalised description, empty/oversized title,
-keyset pagination across three pages (no duplicates), invalid page size, partial update, clearing
-the description, `NOT_FOUND` on update/delete/getById, and the seeded data contract.
+**24 backend tests.** Twenty of them drive the real router with an injected repository (no HTTP, no
+mocks of the code under test); four go through the same `fetchRequestHandler` adapter the app mounts,
+which is the only way to verify what the wire actually promises: `dataCriacao` as a `Date` (superjson),
+`fieldErrors` on `BAD_REQUEST`, and a production `INTERNAL_SERVER_ERROR` that leaks neither message nor
+stack. They cover creation with trimmed title and normalised description, both length boundaries, an
+unknown status, keyset pagination with ordering and no duplicates, an unknown cursor, the default page
+size, partial updates, `NOT_FOUND` on update/delete/getById, defensive copies, and the 24 seeded tasks.
 
-The HTTP layer was also smoke-tested against a running production build (create → update → list →
-delete → double delete → empty title), including the SSR HTML assertion that the seeded tasks are
-present in the first response.
+**9 frontend tests** cover the pure logic behind the form and the error handling: the shared field-error
+mapping and message extraction from a `TRPCClientError`.
+
+The production build was also smoke-tested end to end (create → update → list → delete → double delete →
+empty title), including the SSR HTML assertion that seeded tasks are present in the first response.
 
 ## What I would do next
 
-Persistence (Postgres + a second `TaskRepository`), authentication in `createContext` (the context
-already receives the request headers), per-procedure rate limiting, optimistic updates on delete,
-Playwright for the critical flow, OpenTelemetry spans instead of the timing `console.info`, and a
-`/tasks/[id]` detail route.
+Persistence (Postgres + a second `TaskRepository`), authentication in `createContext` (the HTTP context
+already carries the request headers; the RSC caller would resolve them with `next/headers`), per-procedure
+rate limiting, optimistic updates on delete, Playwright for the critical flow, OpenTelemetry spans
+instead of the timing `console.info`, and a `/tasks/[id]` detail route.
 
 ## Repository layout
 

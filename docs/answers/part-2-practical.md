@@ -15,16 +15,16 @@ npm run dev
 
 ### Technology stack
 
-| Layer | Technology | Version |
-|---|---|---|
-| Framework | Next.js (App Router, Server Components) | 15.5 |
-| UI | React / React DOM | 19.3 |
-| API | tRPC + TanStack React Query integration | 11.27 / 5.107 |
-| Validation | Zod | 4.6 |
-| Serialization | superjson | 2.2 |
-| Tests | Vitest | 3.2 |
-| Language | TypeScript (`strict` + `noUncheckedIndexedAccess`) | 5.9 |
-| Monorepo | npm workspaces | npm 10 |
+| Layer         | Technology                                         | Version       |
+| ------------- | -------------------------------------------------- | ------------- |
+| Framework     | Next.js (App Router, Server Components)            | 15.5          |
+| UI            | React / React DOM                                  | 19.3          |
+| API           | tRPC + TanStack React Query integration            | 11.27 / 5.107 |
+| Validation    | Zod                                                | 4.6           |
+| Serialization | superjson                                          | 2.2           |
+| Tests         | Vitest                                             | 3.2           |
+| Language      | TypeScript (`strict` + `noUncheckedIndexedAccess`) | 5.9           |
+| Monorepo      | npm workspaces                                     | npm 10        |
 
 The case specifies four task fields: `id`, `titulo` (required), `descricao` (optional) and `dataCriacao`. I kept those names as requested and added an optional `status` field (`todo`, `in_progress` or `done`) to make each task's state visible in the list.
 
@@ -72,14 +72,14 @@ The application exposes the tRPC API through:
 /api/trpc/*
 ```
 
-| Procedure | Type | Input | Possible errors |
-|---|---|---|---|
-| `tasks.list` | Query | `{ limit: 1..50, cursor?: string }` | `BAD_REQUEST` |
-| `tasks.getById` | Query | `{ id }` | `NOT_FOUND` |
-| `tasks.create` | Mutation | `{ titulo, descricao?, status? }` | `BAD_REQUEST` |
-| `tasks.update` | Mutation | `{ id, titulo?, descricao?, status? }` (at least one field) | `BAD_REQUEST`, `NOT_FOUND` |
-| `tasks.delete` | Mutation | `{ id }` | `NOT_FOUND` |
-| `health` | Query | No input | — |
+| Procedure       | Type     | Input                                                       | Possible errors            |
+| --------------- | -------- | ----------------------------------------------------------- | -------------------------- |
+| `tasks.list`    | Query    | `{ limit?: 1..50 (default 8), cursor?: string }`            | `BAD_REQUEST`              |
+| `tasks.getById` | Query    | `{ id }`                                                    | `NOT_FOUND`                |
+| `tasks.create`  | Mutation | `{ titulo, descricao?, status? }`                           | `BAD_REQUEST`              |
+| `tasks.update`  | Mutation | `{ id, titulo?, descricao?, status? }` (at least one field) | `BAD_REQUEST`, `NOT_FOUND` |
+| `tasks.delete`  | Mutation | `{ id }`                                                    | `NOT_FOUND`                |
+| `health`        | Query    | No input                                                    | —                          |
 
 The validation rules are defined in `task.schema.ts` and reused by the frontend and backend. The form uses `createTaskInput.safeParse` to provide immediate feedback, while the tRPC procedure validates the request again on the server.
 
@@ -89,13 +89,19 @@ Errors are also handled explicitly. The tRPC `errorFormatter` adds a `fieldError
 
 For example, a validation response can include:
 
-```ts
+```json
 {
-  titulo: "Title is required."
+  "error": {
+    "json": {
+      "data": {
+        "fieldErrors": { "titulo": "Title is required." }
+      }
+    }
+  }
 }
 ```
 
-Stack traces are available during development and removed in production. When a task does not exist, the API returns `NOT_FOUND` with a message explaining that the task may have already been deleted. The edit page uses the same condition to render the Next.js not-found page.
+Stack traces are available during development and removed in production. An unexpected server error is replaced by a generic message, so an internal detail never reaches the browser. When a task does not exist, the API returns `NOT_FOUND` with a message explaining that the task may have already been deleted. The edit page uses the same condition to render the Next.js not-found page.
 
 The `dataCriacao` field remains a JavaScript `Date` on both sides. I use superjson to preserve the date type during transport, avoiding manual conversion from ISO strings in the components.
 
@@ -167,27 +173,27 @@ The layout is responsive, with row actions moving below the task content on smal
 
 ![Task list rendered on the server with the 24 seeded tasks.](../screenshots/01-task-list.png)
 
-*Figure 1 — The list page is server-rendered, and the initial response already contains the tasks.*
+_Figure 1 — The list page is server-rendered, and the initial response already contains the tasks._
 
 ![Create form after submitting an empty title.](../screenshots/02-validation.png)
 
-*Figure 2 — Client-side validation displays the field error and an error toast.*
+_Figure 2 — Client-side validation displays the field error and an error toast._
 
 ![Edit form prefilled by the server component.](../screenshots/03-edit-form.png)
 
-*Figure 3 — The edit form receives its initial values from the server, while the mutation runs on the client.*
+_Figure 3 — The edit form receives its initial values from the server, while the mutation runs on the client._
 
 ![Inline delete confirmation on the first row.](../screenshots/04-delete-confirmation.png)
 
-*Figure 4 — The user confirms deletion inside the row, without a browser dialog.*
+_Figure 4 — The user confirms deletion inside the row, without a browser dialog._
 
 ![Success toast after deleting a task.](../screenshots/05-delete-success.png)
 
-*Figure 5 — Success feedback is displayed and the list is refreshed.*
+_Figure 5 — Success feedback is displayed and the list is refreshed._
 
 ![Mobile layout at 414px wide.](../screenshots/06-mobile.png)
 
-*Figure 6 — On smaller screens, the task actions move below the task content.*
+_Figure 6 — On smaller screens, the task actions move below the task content._
 
 ## 7. Tests and verification
 
@@ -197,22 +203,28 @@ The project provides a verification command:
 npm run verify
 ```
 
-It runs ESLint, TypeScript checks, Vitest and the Next.js production build.
+It runs ESLint, a Prettier check, the TypeScript checks, the Vitest suites of both workspaces and the Next.js production build. CI runs this same command, so the local gate and the pipeline cannot drift.
 
-The backend has 10 unit tests. They exercise the real router with an injected repository, without making HTTP requests or mocking the application code being tested.
+The backend has 24 tests. Most of them exercise the real router with an injected repository, without HTTP or mocks. Four go through the same `fetchRequestHandler` adapter the app mounts at `/api/trpc`, because that is the only place where the two promises of the wire can actually be verified: `dataCriacao` arrives as a `Date` (superjson) and a rejected input carries `fieldErrors`.
 
 The tests cover:
 
-1. Creating a task generates an ID, trims the title and normalises a whitespace-only description to `null`.
-2. An empty title is rejected with `BAD_REQUEST`.
-3. A title exceeding the configured limit is rejected.
-4. Cursor pagination across three pages returns every item exactly once and ends with `nextCursor: null`.
-5. An invalid page size is rejected.
-6. Updating a task changes only the fields included in the request.
-7. An empty description clears the existing description.
-8. Updating a task that does not exist returns `NOT_FOUND`.
-9. Deleting a task succeeds once and returns `NOT_FOUND` when attempted again. `getById` also confirms that the task was removed.
-10. Seed data follows the expected contract and keeps `dataCriacao` as a `Date`.
+1. Creating a task generates a unique ID, trims the title and normalises a whitespace-only description to `null`; the status defaults to `todo` when omitted.
+2. An empty title is rejected with `BAD_REQUEST`; the exact title limit is accepted and one character more is rejected.
+3. The same boundary check for the description (1000 accepted, 1001 rejected).
+4. An unknown status is rejected.
+5. Cursor pagination across three pages returns every item exactly once and ends with `nextCursor: null`; the list is ordered newest-first.
+6. An unknown cursor falls back to the first page, and the limit defaults to 8 when omitted.
+7. An invalid page size (0 or 51) is rejected.
+8. Updating a task changes only the fields included in the request, trims the title, and rejects an update without any field.
+9. An empty description clears the existing description.
+10. Reading, updating and deleting a task that does not exist return `NOT_FOUND`.
+11. Deleting a task succeeds once and returns `NOT_FOUND` when attempted again.
+12. The seed data has 24 tasks, keeps `dataCriacao` as a `Date` and passes the entity schema.
+13. A task returned to a caller cannot be used to mutate the store.
+14. Over HTTP: the date survives the wire, invalid input returns `BAD_REQUEST` with `fieldErrors.titulo`, a missing task returns 404, and in production an unexpected error exposes neither its message nor its stack.
+
+The frontend has 9 tests for the pure logic behind the form and the error handling: the shared field-error mapping and the message extraction from a `TRPCClientError`.
 
 I also checked the production build manually:
 
@@ -220,7 +232,7 @@ I also checked the production build manually:
 - **SSR check:** I inspected the raw HTML returned for `/` and confirmed that it contains the task title `Review the Q3 revenue dashboard`. This verifies that the task content is present in the initial HTML response rather than being added only after a client-side request.
 - **Infinite-scroll check:** Using Chrome DevTools Protocol, I confirmed that 16 rows were present after hydration and all 24 were loaded after scrolling, followed by the end-of-list message.
 
-The `npm run lint`, `npm run typecheck` and `npm test` commands complete successfully. The CI workflow runs the same checks.
+The `npm run verify` command completes successfully. The CI workflow runs the same command.
 
 ## 8. Running the application
 
@@ -251,7 +263,7 @@ The Docker setup uses a multi-stage build based on `node:22-alpine`. It separate
 The CI workflow in `.github/workflows/ci.yml` runs on pushes and pull requests to `main`:
 
 ```text
-npm ci → lint → typecheck → test → build
+npm ci → npm run verify
 ```
 
 The full verification command is also available locally:
@@ -264,15 +276,15 @@ npm run verify
 
 Some decisions were made to keep the implementation aligned with the scope of the case. They also have limitations that would matter in a production application.
 
-| Decision | Reason | Trade-off |
-|---|---|---|
-| Backend as a workspace package | Keeps one deployment while separating backend responsibilities from Next.js | The backend is not independently deployable yet |
-| tRPC instead of REST | Provides end-to-end types without maintaining a separate API contract | Less suitable for non-TypeScript clients and public integrations |
-| Shared Zod schemas | Keeps frontend and backend validation consistent | The validation schema is also included in the client bundle |
-| superjson | Preserves `Date` values across the API boundary | Adds some serialization overhead |
-| Cursor-based pagination | Handles changes to the list more predictably while users browse | The cursor is an implementation detail that the UI does not interpret |
-| In-memory repository behind an interface | Meets the requirements without introducing a database | Data is lost on restart, and the store is limited to a single application instance |
-| Hand-written CSS | Avoids adding another dependency for a small application | Reusable styling utilities would be useful as the interface grows |
+| Decision                                 | Reason                                                                      | Trade-off                                                                          |
+| ---------------------------------------- | --------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| Backend as a workspace package           | Keeps one deployment while separating backend responsibilities from Next.js | The backend is not independently deployable yet                                    |
+| tRPC instead of REST                     | Provides end-to-end types without maintaining a separate API contract       | Less suitable for non-TypeScript clients and public integrations                   |
+| Shared Zod schemas                       | Keeps frontend and backend validation consistent                            | The validation schema is also included in the client bundle                        |
+| superjson                                | Preserves `Date` values across the API boundary                             | Adds some serialization overhead                                                   |
+| Cursor-based pagination                  | Handles changes to the list more predictably while users browse             | The cursor is an implementation detail that the UI does not interpret              |
+| In-memory repository behind an interface | Meets the requirements without introducing a database                       | Data is lost on restart, and the store is limited to a single application instance |
+| Hand-written CSS                         | Avoids adding another dependency for a small application                    | Reusable styling utilities would be useful as the interface grows                  |
 
 If I had more time to extend the project, I would prioritise the following:
 

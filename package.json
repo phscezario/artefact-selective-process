@@ -8,19 +8,19 @@
     "frontend"
   ],
   "engines": {
-    "node": ">=20.11.0"
+    "node": ">=22.0.0"
   },
   "scripts": {
     "dev": "npm run dev --workspace @artefact/frontend",
     "build": "npm run build --workspace @artefact/frontend",
     "start": "npm run start --workspace @artefact/frontend",
-    "lint": "eslint .",
+    "lint": "eslint . --max-warnings 0",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "test": "npm run test --workspace @artefact/backend",
+    "test": "npm run test --workspaces --if-present",
     "test:watch": "npm run test:watch --workspace @artefact/backend",
-    "verify": "npm run lint && npm run typecheck && npm run test && npm run build",
+    "verify": "npm run lint && npm run format:check && npm run typecheck && npm run test && npm run build",
     "submission": "node scripts/build-submission.mjs"
   },
   "devDependencies": {
