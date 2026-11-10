@@ -4,21 +4,31 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { marked } from 'marked';
+import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 
 /**
- * Builds the written-case PDF from the Markdown answers.
+ * Builds the submission PDFs from the Markdown sources.
  *
- * Markdown -> HTML (with a cover page and a table of contents) -> headless Chrome
- * printing to A4. Images are referenced relative to docs/answers, and a <base>
- * tag pointing at that folder is what makes ../screenshots/*.png resolve while
- * the HTML file itself lives in submission/.
+ * Markdown -> HTML (with a cover and a table of contents) -> headless Chrome
+ * printing to A4 -> pdf-lib stamping the footer and the document metadata.
+ *
+ * Two documents are produced:
+ *  - the written case (`docs/answers`), with a full-page cover;
+ *  - the repository README, with a compact cover on the first page.
+ *
+ * Each document declares its own base directory: the HTML files live in
+ * `submission/`, so a single `<base>` would not resolve the images of both.
  */
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const ANSWERS_DIR = path.join(ROOT, 'docs', 'answers');
 const OUT_DIR = path.join(ROOT, 'submission');
-const HTML_FILE = path.join(OUT_DIR, 'answers.html');
-const PDF_FILE = path.join(OUT_DIR, 'Paulo Cezario - Software Engineer Sênior Brazil.pdf');
+
+const AUTHOR = 'Paulo Cezario';
+const ROLE = 'Software Engineer · Senior · Brazil';
+const REPO_LABEL = 'github.com/phscezario/artefact-selective-process';
+const REPO_URL = 'https://github.com/phscezario/artefact-selective-process';
+const PDF_BASENAME = 'Paulo Cezario - Software Engineer Sênior Brazil';
 
 const CHROME_CANDIDATES = [
   'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
@@ -30,7 +40,7 @@ const CHROME_CANDIDATES = [
   '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
 ];
 
-const PARTS = [
+const ANSWER_PARTS = [
   {
     file: 'part-1-theory.md',
     title: 'Part 1 — Theoretical questions',
@@ -63,7 +73,7 @@ function withHeadingIds(html, prefix) {
     index += 1;
 
     if (level === '2') {
-      // The heading already carries its own number ("1. ..."); the <ol> in the
+      // The answers already carry their own number ("1. ..."); the <ol> in the
       // table of contents adds one, so drop the manual prefix there.
       entries.push({ id, label: stripTags(inner).replace(/^\d+\.\s+/, '') });
     }
@@ -72,6 +82,39 @@ function withHeadingIds(html, prefix) {
   });
 
   return { html: output, entries };
+}
+
+/**
+ * A PDF cannot navigate to a repository-relative path, so links are rewritten to
+ * their GitHub equivalent. Images keep their relative `src`: they are resolved by
+ * the `<base>` tag pointing at the source folder.
+ */
+function absoluteLinks(html) {
+  return html.replace(/<a href="([^"]*)"/g, (match, href) => {
+    if (/^(?:[a-z][a-z0-9+.-]*:|\/\/|#)/i.test(href)) {
+      return match;
+    }
+
+    const target = href.replace(/^\.\//, '').replace(/^\/+/, '');
+    const kind = path.extname(target) ? 'blob' : 'tree';
+
+    return `<a href="${REPO_URL}/${kind}/main/${target}"`;
+  });
+}
+
+const BOX_DRAWING_CHARS = /[┌└├┼│─╔╚║═]/;
+
+/**
+ * Marks ASCII diagrams so they are printed with a line height equal to the glyph
+ * box (see `pre.diagram`). Only diagrams need it: flattening a regular code block
+ * would just make it cramped.
+ */
+function markDiagrams(html) {
+  return html.replace(/<pre><code([^>]*)>([\s\S]*?)<\/code><\/pre>/g, (match, attributes, code) =>
+    BOX_DRAWING_CHARS.test(code)
+      ? `<pre class="diagram"><code${attributes}>${code}</code></pre>`
+      : match,
+  );
 }
 
 const css = `
@@ -103,7 +146,156 @@ const css = `
     overflow-wrap: anywhere;
   }
 
-  /* ---------- Cover ---------- */
+  h2 {
+    margin: 9mm 0 3mm;
+    font-size: 13.2pt;
+    letter-spacing: -0.01em;
+    break-after: avoid;
+  }
+
+  h3 {
+    margin: 7mm 0 2mm;
+    font-size: 11.4pt;
+    break-after: avoid;
+  }
+
+  p {
+    margin: 0 0 3.4mm;
+    text-align: left;
+  }
+
+  strong {
+    font-weight: 650;
+  }
+
+  ul,
+  ol {
+    margin: 0 0 3.6mm;
+    padding-left: 6mm;
+  }
+
+  li {
+    margin: 1.2mm 0;
+  }
+
+  li > p {
+    margin: 0;
+  }
+
+  hr {
+    margin: 8mm 0;
+    border: none;
+    border-top: 1px solid #e1e4e9;
+  }
+
+  blockquote {
+    margin: 0 0 4mm;
+    padding: 3mm 4mm;
+    border-left: 3px solid #c7d2fe;
+    background: #f6f7ff;
+    color: #3d4351;
+  }
+
+  blockquote p:last-child {
+    margin-bottom: 0;
+  }
+
+  code {
+    padding: 0.6mm 1.4mm;
+    border-radius: 3px;
+    background: #f1f2f5;
+    font-family: Consolas, 'Cascadia Code', 'Liberation Mono', monospace;
+    font-size: 8.9pt;
+  }
+
+  pre {
+    margin: 0 0 4mm;
+    padding: 3.4mm 4mm;
+    background: #f7f8fa;
+    border: 1px solid #e5e7eb;
+    border-radius: 5px;
+    overflow: hidden;
+    break-inside: avoid;
+  }
+
+  pre code {
+    padding: 0;
+    background: none;
+    font-size: 8.3pt;
+    line-height: 1.45;
+  }
+
+  /*
+   * ASCII diagrams. Box-drawing glyphs only touch when the line box matches the
+   * em box; at the default line height the vertical borders become dashed lines
+   * in print. The size goes on the block, not on the <code>, so the line box is
+   * built from the diagram's own strut instead of the body font's.
+   */
+  pre.diagram {
+    font-size: 7.9pt;
+    line-height: 1;
+  }
+
+  pre.diagram code {
+    font-size: inherit;
+    line-height: 1;
+  }
+
+  table {
+    width: 100%;
+    margin: 0 0 5mm;
+    border-collapse: collapse;
+    font-size: 9pt;
+    line-height: 1.4;
+  }
+
+  thead {
+    display: table-header-group;
+  }
+
+  th,
+  td {
+    padding: 2mm 2.4mm;
+    border: 1px solid #e1e4e9;
+    text-align: left;
+    vertical-align: top;
+  }
+
+  th {
+    background: #f5f6f9;
+    font-weight: 650;
+  }
+
+  /* ---------- Figures ---------- */
+
+  img {
+    display: block;
+    width: auto;
+    height: auto;
+    max-width: 100%;
+    max-height: 108mm;
+    object-fit: contain;
+    object-position: top;
+    margin: 3mm auto 2mm;
+    border: 1px solid #dfe3e9;
+    border-radius: 5px;
+  }
+
+  p:has(> img) {
+    break-inside: avoid;
+    margin-bottom: 0;
+  }
+
+  p:has(> em:only-child) {
+    margin: 0 0 5mm;
+    font-size: 8.9pt;
+    color: #5b6270;
+    text-align: center;
+    /* A caption stranded on the next page does not explain anything. */
+    break-before: avoid;
+  }
+
+  /* ---------- Cover (written case) ---------- */
 
   .cover {
     display: flex;
@@ -189,7 +381,7 @@ const css = `
     margin: 0;
   }
 
-  /* ---------- Table of contents ---------- */
+  /* ---------- Table of contents (written case) ---------- */
 
   .toc {
     break-after: page;
@@ -232,7 +424,7 @@ const css = `
     color: #16191f;
   }
 
-  /* ---------- Parts ---------- */
+  /* ---------- Parts (written case) ---------- */
 
   .part + .part {
     break-before: page;
@@ -246,137 +438,137 @@ const css = `
     letter-spacing: -0.02em;
   }
 
-  h2 {
-    margin: 9mm 0 3mm;
-    font-size: 13.2pt;
-    letter-spacing: -0.01em;
-    break-after: avoid;
+  /* ---------- Compact cover (README) ---------- */
+
+  .compact-cover {
+    padding-bottom: 4mm;
+    border-bottom: 3px solid #4f46e5;
   }
 
-  h3 {
-    margin: 7mm 0 2mm;
-    font-size: 11.4pt;
-    break-after: avoid;
-  }
-
-  p {
-    margin: 0 0 3.4mm;
-    text-align: left;
-  }
-
-  strong {
+  .eyebrow {
+    margin: 0 0 3mm;
+    font-size: 8.6pt;
     font-weight: 650;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #4f46e5;
   }
 
-  ul,
-  ol {
-    margin: 0 0 3.6mm;
-    padding-left: 6mm;
-  }
-
-  li {
-    margin: 1.2mm 0;
-  }
-
-  li > p {
+  .compact-cover h1 {
     margin: 0;
+    font-size: 25pt;
+    line-height: 1.1;
+    letter-spacing: -0.025em;
   }
 
-  hr {
-    margin: 8mm 0;
-    border: none;
-    border-top: 1px solid #e1e4e9;
-  }
-
-  blockquote {
-    margin: 0 0 4mm;
-    padding: 3mm 4mm;
-    border-left: 3px solid #c7d2fe;
-    background: #f6f7ff;
-    color: #3d4351;
-  }
-
-  blockquote p:last-child {
-    margin-bottom: 0;
-  }
-
-  code {
-    padding: 0.6mm 1.4mm;
-    border-radius: 3px;
-    background: #f1f2f5;
-    font-family: 'Cascadia Code', Consolas, 'Liberation Mono', monospace;
-    font-size: 8.9pt;
-  }
-
-  pre {
-    margin: 0 0 4mm;
-    padding: 3.4mm 4mm;
-    background: #f7f8fa;
-    border: 1px solid #e5e7eb;
-    border-radius: 5px;
-    overflow: hidden;
-    break-inside: avoid;
-  }
-
-  pre code {
-    padding: 0;
-    background: none;
-    font-size: 8.3pt;
-    line-height: 1.45;
-  }
-
-  table {
-    width: 100%;
-    margin: 0 0 5mm;
-    border-collapse: collapse;
+  .compact-meta {
+    margin: 3mm 0 0;
     font-size: 9pt;
-    line-height: 1.4;
-  }
-
-  thead {
-    display: table-header-group;
-  }
-
-  th,
-  td {
-    padding: 2mm 2.4mm;
-    border: 1px solid #e1e4e9;
-    text-align: left;
-    vertical-align: top;
-  }
-
-  th {
-    background: #f5f6f9;
-    font-weight: 650;
-  }
-
-  /* ---------- Figures ---------- */
-
-  img {
-    display: block;
-    width: 100%;
-    max-height: 165mm;
-    object-fit: contain;
-    object-position: top;
-    margin: 3mm 0 2mm;
-    border: 1px solid #dfe3e9;
-    border-radius: 5px;
-  }
-
-  p:has(> img) {
-    break-inside: avoid;
-    margin-bottom: 0;
-  }
-
-  p:has(> em:only-child) {
-    margin: 0 0 5mm;
-    font-size: 8.9pt;
     color: #5b6270;
-    text-align: center;
+  }
+
+  .toc-compact {
+    margin: 6mm 0 7mm;
+  }
+
+  .toc-compact .toc-title {
+    margin: 0 0 3mm;
+    font-size: 10.4pt;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #6b7280;
+  }
+
+  .toc-compact ul {
+    margin: 0;
+    padding-left: 5mm;
+    column-count: 2;
+    column-gap: 10mm;
+    font-size: 9.6pt;
+  }
+
+  .toc-compact li {
+    break-inside: avoid;
+    margin: 1mm 0;
+  }
+
+  .toc-compact a {
+    color: #16191f;
+  }
+
+  /* ---------- README specifics: denser, print-friendly ---------- */
+
+  .doc-readme {
+    line-height: 1.5;
+  }
+
+  .doc-readme h2 {
+    margin: 7mm 0 2.4mm;
+    padding-bottom: 1.4mm;
+    border-bottom: 1px solid #e5e7eb;
+    font-size: 13.6pt;
+  }
+
+  .doc-readme h3 {
+    font-size: 11pt;
+  }
+
+  .doc-readme table {
+    font-size: 8.4pt;
+    line-height: 1.35;
+  }
+
+  .doc-readme th,
+  .doc-readme td {
+    padding: 1.6mm 2mm;
+  }
+
+  .doc-readme tbody tr {
+    break-inside: avoid;
+  }
+
+  .doc-readme pre code {
+    font-size: 7.9pt;
+  }
+
+  .doc-readme img {
+    margin-top: 1mm;
   }
 `;
 
-function buildHtml(renderedParts) {
+function pageShell({ lang = 'en', title, baseDir, extraClass = '', body }) {
+  const baseHref = `${pathToFileURL(baseDir).href}/`;
+  const classes = ['doc', extraClass].filter(Boolean).join(' ');
+
+  return `<!doctype html>
+<html lang="${lang}">
+  <head>
+    <meta charset="utf-8" />
+    <base href="${baseHref}" />
+    <title>${title}</title>
+    <style>${css}</style>
+  </head>
+  <body class="${classes}">
+    ${body}
+  </body>
+</html>
+`;
+}
+
+const generatedOn = new Intl.DateTimeFormat('en-US', { dateStyle: 'long' }).format(new Date());
+
+async function buildAnswersHtml() {
+  const renderedParts = [];
+
+  for (const part of ANSWER_PARTS) {
+    const markdown = await readFile(path.join(ANSWERS_DIR, part.file), 'utf8');
+    const html = markDiagrams(marked.parse(markdown));
+    const { html: withIds, entries } = withHeadingIds(html, part.prefix);
+
+    renderedParts.push({ ...part, html: withIds, entries });
+    console.info(`[submission] ${part.file}: ${entries.length} sections`);
+  }
+
   const toc = renderedParts
     .map(
       (part) => `
@@ -393,18 +585,11 @@ function buildHtml(renderedParts) {
     .map((part) => `<section class="part">${part.html}</section>`)
     .join('\n');
 
-  const baseHref = `${pathToFileURL(ANSWERS_DIR).href}/`;
-  const generatedOn = new Intl.DateTimeFormat('en-US', { dateStyle: 'long' }).format(new Date());
-
-  return `<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <base href="${baseHref}" />
-    <title>Paulo Cezario - Software Engineer Sênior Brazil</title>
-    <style>${css}</style>
-  </head>
-  <body>
+  return pageShell({
+    title: PDF_BASENAME,
+    baseDir: ANSWERS_DIR,
+    extraClass: 'doc-answers',
+    body: `
     <section class="cover">
       <div class="cover-top">
         <span class="cover-mark">✓</span>
@@ -413,7 +598,7 @@ function buildHtml(renderedParts) {
 
       <div class="cover-main">
         <h1>Written case</h1>
-        <p class="cover-role">Paulo Cezario</p>
+        <p class="cover-role">${AUTHOR}</p>
         <p class="cover-subtitle">
           Theory and practice of rendering, backend approaches and tRPC, followed by a task manager
           built with Next.js 15 and a transport-agnostic tRPC backend.
@@ -423,11 +608,11 @@ function buildHtml(renderedParts) {
 
       <dl class="cover-meta">
         <dt>Candidate</dt>
-        <dd>Paulo Cezario</dd>
+        <dd>${AUTHOR}</dd>
         <dt>Role</dt>
-        <dd>Software Engineer · Senior · Brazil</dd>
+        <dd>${ROLE}</dd>
         <dt>Repository</dt>
-        <dd>github.com/phscezario/artefact-selective-process</dd>
+        <dd>${REPO_LABEL}</dd>
         <dt>Date</dt>
         <dd>${generatedOn}</dd>
       </dl>
@@ -438,18 +623,83 @@ function buildHtml(renderedParts) {
       ${toc}
     </section>
 
-    ${body}
-  </body>
-</html>
-`;
+    ${body}`,
+  });
 }
+
+async function buildReadmeHtml() {
+  const markdown = await readFile(path.join(ROOT, 'README.md'), 'utf8');
+  const html = markDiagrams(marked.parse(markdown));
+  const heading = html.match(/<h1>([\s\S]*?)<\/h1>/);
+  const title = heading ? stripTags(heading[1]) : 'Project README';
+  const withoutTitle = heading ? html.replace(heading[0], '') : html;
+  const { html: withIds, entries } = withHeadingIds(absoluteLinks(withoutTitle), 'rm');
+
+  console.info(`[submission] README.md: ${entries.length} sections`);
+
+  const toc = entries.map((entry) => `<li><a href="#${entry.id}">${entry.label}</a></li>`).join('');
+
+  return pageShell({
+    title: `${PDF_BASENAME} - README`,
+    baseDir: ROOT,
+    extraClass: 'doc-readme',
+    body: `
+    <section class="compact-cover">
+      <p class="eyebrow">Artefact · Software Engineer (Senior, Brazil)</p>
+      <h1>${title}</h1>
+      <p class="compact-meta">${AUTHOR} · ${REPO_LABEL} · ${generatedOn}</p>
+    </section>
+
+    <section class="toc-compact">
+      <p class="toc-title">Contents</p>
+      <ul>${toc}</ul>
+    </section>
+
+    <section class="body">
+      ${withIds}
+    </section>`,
+  });
+}
+
+const DOCUMENTS = [
+  {
+    id: 'answers',
+    htmlFile: path.join(OUT_DIR, 'answers.html'),
+    pdfFile: path.join(OUT_DIR, `${PDF_BASENAME}.pdf`),
+    build: buildAnswersHtml,
+    footer: {
+      left: `${AUTHOR} · ${ROLE} · Written case`,
+      skipFirstPage: true,
+    },
+    meta: {
+      title: `${PDF_BASENAME} — written case`,
+      subject: 'Written case: theory and practice (Next.js 15 + tRPC task manager)',
+      keywords: ['written case', 'Next.js', 'tRPC', 'TypeScript', 'software engineer'],
+    },
+  },
+  {
+    id: 'readme',
+    htmlFile: path.join(OUT_DIR, 'readme.html'),
+    pdfFile: path.join(OUT_DIR, `${PDF_BASENAME} - README.pdf`),
+    build: buildReadmeHtml,
+    footer: {
+      left: `${AUTHOR} · ${ROLE} · Repository README`,
+      skipFirstPage: false,
+    },
+    meta: {
+      title: `${PDF_BASENAME} — README`,
+      subject: 'Task manager built with Next.js 15, tRPC and an in-memory repository',
+      keywords: ['README', 'Next.js', 'tRPC', 'TypeScript', 'task manager'],
+    },
+  },
+];
 
 async function findChrome() {
   const found = CHROME_CANDIDATES.find((candidate) => existsSync(candidate));
 
   if (!found) {
     throw new Error(
-      'Chrome or Edge was not found. Install one, or print submission/answers.html manually.',
+      'Chrome or Edge was not found. Install one, or print the generated HTML files manually.',
     );
   }
 
@@ -459,7 +709,7 @@ async function findChrome() {
 function printToPdf(chromePath, url, outputPath) {
   const profileDir = path.join(
     process.env.TEMP ?? process.env.TMPDIR ?? '.',
-    `chrome-pdf-${Date.now()}`,
+    `chrome-pdf-${Date.now()}-${path.basename(outputPath, '.pdf')}`,
   );
 
   return new Promise((resolve, reject) => {
@@ -492,23 +742,73 @@ function printToPdf(chromePath, url, outputPath) {
   });
 }
 
-await mkdir(OUT_DIR, { recursive: true });
+const FOOTER_COLOR = rgb(0.42, 0.45, 0.5);
+const FOOTER_RULE = rgb(0.88, 0.9, 0.92);
+/** 1mm in PostScript points. */
+const mm = (value) => (value * 72) / 25.4;
 
-const renderedParts = [];
+/**
+ * Chrome does not write page numbers or metadata, so the printed file is reopened
+ * and finished here: a footer on every page (except the cover, when asked), the
+ * page count, and the document properties a reader shows in its title bar.
+ */
+async function finishPdf(filePath, { footer, meta }) {
+  const pdf = await PDFDocument.load(await readFile(filePath));
+  const font = await pdf.embedFont(StandardFonts.Helvetica);
+  const pages = pdf.getPages();
+  const total = pages.length;
+  const size = 7.5;
+  const left = `${footer.left}`;
 
-for (const part of PARTS) {
-  const markdown = await readFile(path.join(ANSWERS_DIR, part.file), 'utf8');
-  const html = marked.parse(markdown);
-  const { html: withIds, entries } = withHeadingIds(html, part.prefix);
+  pages.forEach((page, index) => {
+    if (footer.skipFirstPage && index === 0) {
+      return;
+    }
 
-  renderedParts.push({ ...part, html: withIds, entries });
-  console.info(`[submission] ${part.file}: ${entries.length} sections`);
+    const { width } = page.getSize();
+    const y = mm(9);
+    const label = `Page ${index + 1} of ${total}`;
+
+    page.drawText(left, { x: mm(16), y, size, font, color: FOOTER_COLOR });
+    page.drawText(label, {
+      x: width - mm(16) - font.widthOfTextAtSize(label, size),
+      y,
+      size,
+      font,
+      color: FOOTER_COLOR,
+    });
+    page.drawLine({
+      start: { x: mm(16), y: y + mm(3.4) },
+      end: { x: width - mm(16), y: y + mm(3.4) },
+      thickness: 0.5,
+      color: FOOTER_RULE,
+    });
+  });
+
+  pdf.setTitle(meta.title);
+  pdf.setAuthor(AUTHOR);
+  pdf.setSubject(meta.subject);
+  pdf.setKeywords(meta.keywords);
+  pdf.setCreator('scripts/build-submission.mjs');
+  pdf.setProducer('Chrome headless + pdf-lib');
+  pdf.setCreationDate(new Date());
+  pdf.setModificationDate(new Date());
+
+  await writeFile(filePath, await pdf.save());
+
+  return total;
 }
 
-await writeFile(HTML_FILE, buildHtml(renderedParts), 'utf8');
-
+await mkdir(OUT_DIR, { recursive: true });
 const chromePath = await findChrome();
-await rm(PDF_FILE, { force: true });
-await printToPdf(chromePath, pathToFileURL(HTML_FILE).href, PDF_FILE);
 
-console.info(`[submission] PDF written to ${PDF_FILE}`);
+for (const document of DOCUMENTS) {
+  const html = await document.build();
+
+  await writeFile(document.htmlFile, html, 'utf8');
+  await rm(document.pdfFile, { force: true });
+  await printToPdf(chromePath, pathToFileURL(document.htmlFile).href, document.pdfFile);
+
+  const pageCount = await finishPdf(document.pdfFile, document);
+  console.info(`[submission] ${path.basename(document.pdfFile)}: ${pageCount} pages`);
+}
